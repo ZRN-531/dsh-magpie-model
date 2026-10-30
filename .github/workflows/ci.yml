@@ -19,12 +19,13 @@ jobs:
 
       - name: Syntax-check every module
         run: |
-          for f in index.js client.js src/*.js test/*.mjs; do
+          for f in index.js client.js src/*.js scripts/*.mjs test/*.mjs; do
             node --check "$f"
           done
 
       - name: Lint the browser half (evaluates the bundle, renders every card, checks locale parity)
         run: node test/client-lint.mjs
+
 
       - name: Integration tests
         # The suite is written to skip any case whose precondition is absent:

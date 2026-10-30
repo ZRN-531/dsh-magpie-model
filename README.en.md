@@ -59,6 +59,24 @@ node test/verify-live.mjs     # live end-to-end against a running dsh (token han
 
 Every test skips cleanly when its precondition is absent (no magpie binary, no root for :53, no running engine), so CI is green on a bare runner. Add a case for every bug you fix.
 
+## Self-check & repair: `doctor`
+
+A dsh Mobile app update reinstalls the engine directory but keeps user data under `$DSH_HOME`. Everything this plugin needs (source, magpie binary, accounts, settings, profile registration) lives under `$DSH_HOME`, so an update normally leaves it working. But two failures are **silent** — the plugin simply does not load and the picker shows no Magpie group, with the only evidence in the engine log:
+
+1. the profile's `dsh.profile.bundles` no longer lists `dsh-magpie-model` (a template rewrite during a major upgrade);
+2. the profile's `node_modules/dsh-magpie-model` symlink is gone or dangling (node_modules rebuilt, or an offline install that failed).
+
+`doctor` checks both (plus source, binary, accounts, and liveness), repairs them **in place** (backing up before writing, idempotent), and runs a live check to prove the plugin is actually serving:
+
+```sh
+node scripts/doctor.mjs            # check + repair + live check (one real round trip)
+node scripts/doctor.mjs --check    # check only; change nothing
+node scripts/doctor.mjs --no-live  # skip the live check (local only, ~180ms, free)
+node scripts/doctor.mjs --json     # machine-readable summary
+```
+
+> Run `node scripts/doctor.mjs` **after an app update**. For a quick reassurance **any time**, `--no-live --check` (~180ms, no network, no inference, no cost) catches both silent failures above.
+
 ## Pitfalls (all fixed here, each with a regression lock)
 
 1. **A colliding provider route name degraded the whole profile.** The route was first the bare `magpie`, the same name magpie's handover injects into `dsh-llm-pi-ai` → `LlmError: configurable provider "magpie" is already declared` → pi-ai's fiber failed, profile degraded, the default model went down with it. Fixed: route is `magpie-model` + `MAGPIE_NO_HANDOVER=1`.

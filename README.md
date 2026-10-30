@@ -58,6 +58,24 @@ node test/client-lint.mjs     # 浏览器半：在 stub 的 ModuleLoader 下真�
 node test/verify-live.mjs     # 活体核验：token 握手 + 插件 status/models + profile 健康 + 一次真实往返
 ```
 
+## 自检与自动修复：`doctor`
+
+dsh Mobile 的 app 更新会重装引擎目录，但保留 `$DSH_HOME` 下的用户数据。本插件所需的一切（源码、magpie 二进制、账号、设置、profile 注册）都刻意放在 `$DSH_HOME`，所以更新通常不影响它。但有两种失败是**静默的**——插件直接不加载、模型选择器里没有 Magpie 分组，只有引擎日志里才看得出：
+
+1. profile 的 `dsh.profile.bundles` 不再列出 `dsh-magpie-model`（大版本升级重写了模板）；
+2. profile 的 `node_modules/dsh-magpie-model` symlink 丢失或悬空（node_modules 被重建、或离线安装失败）。
+
+`doctor` 检查这两项（以及源码、二进制、账号、运行态），**就地修复**（改文件前先备份、幂等），再跑一次活体检查证明插件真的在服务：
+
+```sh
+node scripts/doctor.mjs            # 检查 + 修复 + 活体核验（含一次真实往返）
+node scripts/doctor.mjs --check    # 只检查，不改任何文件
+node scripts/doctor.mjs --no-live  # 跳过活体（纯本地，约 180ms，零成本）
+node scripts/doctor.mjs --json     # 机器可读结果
+```
+
+> **app 更新后**跑一次 `node scripts/doctor.mjs` 即可。**平时每次**想确认就 `--no-live --check`（180ms、不联网、不推理、不花钱），足以抓住上面两类静默故障。
+
 ## 踩过的坑（都修了，也都留了回归锁）
 
 这些是开发/上线过程中真实踩到并在本仓库里修掉的，记下来给后来者：

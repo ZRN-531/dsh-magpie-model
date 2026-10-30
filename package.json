@@ -10,10 +10,20 @@
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
+  "bin": {
+    "dsh-magpie-doctor": "./scripts/doctor.mjs"
+  },
+  "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "doctor:check": "node scripts/doctor.mjs --no-live --check",
+    "test": "node test/client-lint.mjs && node test/integration.mjs",
+    "test:live": "node test/verify-live.mjs"
+  },
   "files": [
     "index.js",
     "client.js",
     "src",
+    "scripts",
     "locale",
     "icon.svg",
     "cordis.patch.yml",

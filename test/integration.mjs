@@ -231,6 +231,43 @@ async function drive(adapter, options) {
   return { events, model: prepared.model }
 }
 
+/**
+ * Is a finished turn a *transient upstream* failure — one retrying actually fixes
+ * — rather than a structural break in the translation?
+ *
+ * This test drives a live third-party gateway. A pooled upstream account
+ * legitimately returns an empty body or drops the connection now and then; that
+ * is not the adapter's fault and must not turn CI red (it once did, intermittently,
+ * for exactly this — "a clean turn should stop, got error"). But a tool turn that
+ * does not report `tool-calls`, or a model that ignores the effort knob, IS the
+ * adapter's fault and must still fail. So only the empty/timeout/server/transport
+ * family is treated as transient.
+ */
+function isTransientFailure(assembled) {
+  const reason = assembled.finish
+  if (reason === null || reason.kind !== 'error') return false
+  const code = reason.failure?.code
+  return code === 'EMPTY_RESPONSE' || code === 'SERVER' || code === 'TIMEOUT' || code === 'TRANSPORT'
+}
+
+/**
+ * Drive one turn, tolerating a transient upstream failure: retry a couple of
+ * times, and if it is *still* transient, report `skipped` rather than failing.
+ * Any other outcome (a real answer, or a structural error) is returned as-is for
+ * the caller to assert on.
+ */
+async function driveTolerant(adapter, options, label) {
+  let last
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const out = await drive(adapter, options)
+    last = assemble(out.events)
+    if (!isTransientFailure(last)) return { events: out.events, assembled: last, skipped: false }
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 800))
+  }
+  console.log(`    (skipped ${label}: transient upstream failure — ${last.finish?.failure?.code ?? 'unknown'})`)
+  return { events: [], assembled: last, skipped: true }
+}
+
 /** Assemble a turn the way the kernel's consumer does, to check it is coherent. */
 function assemble(events) {
   const blocks = new Map()
@@ -822,14 +859,15 @@ record('a real turn through the real gateway assembles', async () => {
   //    spent ~50 tokens thinking first), which makes this assertion flaky for a
   //    reason that has nothing to do with the adapter. 'off' zeroes the reasoning
   //    tokens (proven below), so the whole budget is answer.
-  const plain = await drive(adapter, {
+  const plain = await driveTolerant(adapter, {
     provider: ROUTE, model: MODEL, reasoningEffort: 'off',
     messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with exactly: MAGPIE_OK' }] }],
     // Headroom for the model's residual thinking: hy3 spends ~24 reasoning tokens
     // even at effort off, so 64 was tight enough to truncate on a busy pass.
     maxTokens: 128,
-  })
-  const assembled = assemble(plain.events)
+  }, 'plain text turn')
+  if (plain.skipped) return
+  const assembled = plain.assembled
   console.log(`    text turn: finish=${assembled.finish.kind} blocks=${String(assembled.blockCount)} reasoning=${String(assembled.reasoning.length)}ch answer=${JSON.stringify(assembled.text.slice(0, 60))}`)
   assert.ok(assembled.finish.kind === 'stop' || assembled.finish.kind === 'max-tokens', `a clean turn should stop, got ${assembled.finish.kind}`)
   assert.ok(assembled.text.includes('MAGPIE_OK'), `the answer must reach the kernel intact, got ${JSON.stringify(assembled.text)}`)
@@ -865,13 +903,14 @@ record('a real turn through the real gateway assembles', async () => {
   }
 
   // 3) a tool call round trip — the path an agent actually lives on
-  const toolTurn = await drive(adapter, {
+  const toolTurn = await driveTolerant(adapter, {
     provider: ROUTE, model: MODEL,
     messages: [{ role: 'user', content: [{ type: 'text', text: 'Call get_weather for Beijing. You must use the tool.' }] }],
     tools: [{ name: 'get_weather', description: 'Get the weather for a city', parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } }],
     maxTokens: 200,
-  })
-  const toolOut = assemble(toolTurn.events)
+  }, 'tool turn')
+  if (toolTurn.skipped) return
+  const toolOut = toolTurn.assembled
   console.log(`    tool turn: finish=${toolOut.finish.kind} calls=${String(toolOut.toolCalls.length)} ${toolOut.toolCalls.map(c => `${c.name}(${c.arguments})`).join(' ')}`)
   assert.equal(toolOut.finish.kind, 'tool-calls', 'a tool turn must finish as tool-calls, or the kernel never runs the tool')
   assert.equal(toolOut.toolCalls.length, 1)
@@ -880,7 +919,7 @@ record('a real turn through the real gateway assembles', async () => {
 
   // 4) the answered tool result replays, which is where a projector that reads
   //    only one session format silently drops every result
-  const followUp = await drive(adapter, {
+  const followUp = await driveTolerant(adapter, {
     provider: ROUTE, model: MODEL,
     messages: [
       { role: 'user', content: [{ type: 'text', text: 'Call get_weather for Beijing.' }] },
@@ -889,8 +928,9 @@ record('a real turn through the real gateway assembles', async () => {
     ],
     tools: [{ name: 'get_weather', description: 'Get the weather for a city', parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } }],
     maxTokens: 120,
-  })
-  const followed = assemble(followUp.events)
+  }, 'follow-up turn')
+  if (followUp.skipped) return
+  const followed = followUp.assembled
   console.log(`    follow-up turn: finish=${followed.finish.kind} answer=${JSON.stringify(followed.text.slice(0, 70))}`)
   assert.ok(followed.text.length > 0, 'the model must answer from the replayed tool result')
   assert.ok(!followed.text.includes('400'), 'a 400 in the answer means the history was rejected')
