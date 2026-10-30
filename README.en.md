@@ -20,7 +20,7 @@ magpie ships a *handover* feature: when it detects the host agent (it knows dsh 
 - **Thinking levels that actually work** — maps the harness `off` to the wire `none`; the rest pass through unchanged on `reasoning_effort`. Measured: `off` → 0 reasoning tokens, `xhigh` → tens.
 - **Automatic failover** — if a model fails (empty response / dropped connection) **before emitting any output**, retry on the next available model. Never duplicates output; a user cancellation or a 4xx is not switched; the model that actually answered is reported.
 - **Model pin / hide / order** — keep the picker to the one or two of six models you use, pinned to the top; local only, zero cost.
-- **Multiplier & price** — each model shows magpie's own **multiplier** (`rate`) and real list price (`$input/$output per 1M tokens`); free models are badged. Read from magpie's web API `/api/providers` (the same data its channel page shows), not computed by the plugin.
+- **Multiplier & price** — each model shows magpie's own **multiplier** (`rate`) and real list price (`$input/$output per 1M tokens`); free models are badged. **Shown inline after the model name in the picker** (e.g. `DeepSeek-V4-Pro · x0.51`, `Hy3 · 免费`), with the full price in the settings table. Read from magpie's web API `/api/providers` (the same data its channel page shows), not computed by the plugin.
 - **Glass settings page** — gateway/DNS status, per-model test, usage dashboard (by model / daily curve), switches that take effect on save (the gateway restarts automatically; no engine restart).
 - **Works out of the box** — `serveWeb` is on by default; open `http://127.0.0.1:3430/?k=<key>` to sign in more magpie account channels.
 

@@ -179,7 +179,7 @@ export function modelInfoFor(row, provider, model) {
   const info = {
     provider,
     id: model,
-    name: row?.name ?? model,
+    name: row?.name === undefined ? model : nameWithRate(row.name, row.rates),
     inputModalities: Array.isArray(row?.inputModalities) ? [...row.inputModalities] : ['text'],
     context: { contextWindow: row?.contextWindow ?? 262144 },
   }
@@ -261,4 +261,25 @@ export function describeRates(rates) {
     parts.push(`输入 ${fmt(input)}/M · 输出 ${fmt(output)}/M`)
   }
   return parts.join(' · ')
+}
+
+/**
+ * Fold the multiplier into a model's display name, matching the inline style the
+ * dsh picker shows for other plugins (`Auto · x0.5`, `Qwen3.8-Flash · 免费`).
+ *
+ * The picker renders only `name` — it does not show `description` — so a rate in
+ * the description is invisible where the user actually picks a model. Baking a
+ * compact suffix into the name is the only way to surface it there. Kept short on
+ * purpose: the settings table carries the full price; the picker gets the one
+ * number that distinguishes models at a glance.
+ *
+ * @param {string} name - the model's clean display name
+ * @param {object} [rates] - a {@link ratesFrom} payload
+ * @returns {string}
+ */
+export function nameWithRate(name, rates) {
+  if (rates === undefined || rates === null) return name
+  if (rates.free === true) return `${name} · 免费`
+  if (typeof rates.rate === 'number' && rates.rate > 0) return `${name} · x${String(rates.rate)}`
+  return name
 }

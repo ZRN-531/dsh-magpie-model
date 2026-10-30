@@ -30,7 +30,7 @@
 
 import { CODE, UpstreamError, mapUsage, finishReason, BlockTracker, readSseStream } from './stream.js'
 import { toChatMessages, toToolDefs, hasImageContent, repairToolPairing } from './messages.js'
-import { describeRow, describeRates, effortToWire, modelInfoFor } from './catalog.js'
+import { describeRow, nameWithRate, effortToWire, modelInfoFor } from './catalog.js'
 
 /**
  * The provider route this adapter owns — the picker's group key.
@@ -226,8 +226,12 @@ export class MagpieAdapter {
     return rows.map(entry => ({
       provider,
       id: entry.id,
-      name: entry.name,
-      description: [describeRow(entry), describeRates(entry.rates)].filter(Boolean).join(' · '),
+      // The multiplier goes in the NAME, not the description: the dsh picker
+      // renders only `name`, so an inline `· x0.5` / `· 免费` is what actually
+      // shows where the user picks a model (matching other plugins' style). The
+      // description keeps the fuller context for any surface that shows it.
+      name: nameWithRate(entry.name, entry.rates),
+      description: describeRow(entry),
       inputModalities: [...entry.inputModalities],
     }))
   }
