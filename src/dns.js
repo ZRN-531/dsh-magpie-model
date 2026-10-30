@@ -52,6 +52,11 @@ export async function startLocalResolver(options = {}) {
     ? options.upstreams
     : DEFAULT_UPSTREAMS
   const port = Number.isInteger(options.port) && options.port > 0 ? options.port : 53
+  // Bind targets. Overridable purely so a test can drive the failure path with an
+  // address no interface has; production always binds the two loopback families.
+  const targets = Array.isArray(options.addresses) && options.addresses.length > 0
+    ? options.addresses.map(a => ({ address: a.address ?? a, type: a.type ?? (String(a.address ?? a).includes(':') ? 'udp6' : 'udp4') }))
+    : [{ type: 'udp4', address: '127.0.0.1' }, { type: 'udp6', address: '::1' }]
   const log = options.log ?? (() => {})
   const sockets = []
   const listening = []
@@ -101,31 +106,57 @@ export async function startLocalResolver(options = {}) {
 
   const bind = (type, address) => new Promise((resolve) => {
     let sock
+    let settled = false
+    // Settle exactly once. The failure path here was once silent: a bind that
+    // fails (EACCES on port 53 for a non-root process, EADDRINUSE, an ephemeral
+    // platform without UDP) delivers the failure on the socket's `error` event,
+    // not as a synchronous throw — and an error handler that only *records* the
+    // failure leaves this promise pending forever, so `await bind(...)` hangs and
+    // the whole plugin startup stalls instead of degrading.
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try { sock.unref?.() } catch { /* keep-alive is best effort */ }
+      resolve()
+    }
+    // A bind that never calls back and never errors (a wedged platform) must not
+    // hold startup hostage either.
+    const timer = setTimeout(() => {
+      if (!settled) { failed.push(`${address}:${port} (timed out after 5s)`); finish() }
+    }, 5000)
+    timer.unref?.()
     try { sock = dgram.createSocket({ type, reuseAddr: true }) } catch (error) {
       failed.push(`${address} (${error.message})`)
+      clearTimeout(timer)
       resolve()
       return
     }
-    const done = (outcome) => { try { sock.unref?.() } catch { /* keep-alive is best effort */ } resolve(outcome) }
     sock.on('message', (msg, rinfo) => forward(msg, rinfo, sock))
     sock.on('error', (error) => {
-      if (!listening.includes(`${address}:${port}`)) failed.push(`${address}:${port} (${error.code ?? error.message})`)
-      else log(`dns: ${address}:${port} failed after binding: ${error.message}`)
+      if (!listening.includes(`${address}:${port}`)) {
+        // A pre-bind failure (EACCES/EADDRINUSE): record it and settle so the
+        // caller degrades to "no resolver" instead of hanging.
+        failed.push(`${address}:${port} (${error.code ?? error.message})`)
+        finish()
+      } else {
+        // A post-bind failure: the socket died later, not a startup problem.
+        log(`dns: ${address}:${port} failed after binding: ${error.message}`)
+      }
     })
     try {
       sock.bind(port, address, () => {
         listening.push(`${address}:${port}`)
         sockets.push(sock)
-        done()
+        finish()
       })
     } catch (error) {
       failed.push(`${address}:${port} (${error.message})`)
-      done()
+      finish()
     }
   })
 
-  await bind('udp4', '127.0.0.1')
-  await bind('udp6', '::1')
+  for (const target of targets) await bind(target.type, target.address)
 
   if (listening.length > 0) log(`dns: forwarding ${listening.join(', ')} -> ${upstreams.map(u => u.host).join(', ')}`)
   else log(`dns: could not bind :${port} (${failed.join('; ')}); magpie will resolve nothing`)

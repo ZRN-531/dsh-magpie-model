@@ -710,6 +710,28 @@ record('dns.js binds loopback :53 and resolves through it', async () => {
   } finally { resolver.stop() }
 })
 
+record('dns.js returns instead of hanging when :53 cannot be bound', async () => {
+  // The regression: a bind that fails (EACCES for a non-root process, EADDRINUSE,
+  // no UDP, an address no interface owns) delivers the failure on the socket
+  // `error` event. An error handler that only records the failure leaves
+  // `await bind()` pending forever, so startup stalls — "degrades when not root"
+  // was in fact a hang. Bind a TEST-NET-1 address (192.0.2.1 — guaranteed not to
+  // exist on any host) to force that path deterministically, then assert the call
+  // settles in bounded time instead of hanging.
+  const { startLocalResolver } = await import('../src/dns.js')
+  const started = Date.now()
+  const resolver = await Promise.race([
+    startLocalResolver({ log: () => {}, addresses: ['192.0.2.1'] }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('startLocalResolver HUNG (>8s) on a failed bind')), 8000)),
+  ])
+  const ms = Date.now() - started
+  resolver.stop()
+  assert.ok(ms < 8000, `it settled promptly (${String(ms)}ms), not hung`)
+  assert.equal(resolver.listening.length, 0, 'nothing was bound on an address that does not exist')
+  assert.ok(resolver.failed.length > 0, 'the failure was recorded, not swallowed')
+  console.log(`    failed bind settled in ${String(ms)}ms; failed=[${resolver.failed.join('; ')}]`)
+})
+
 record('gateway.js locates magpie and probes the live gateway', async () => {
   const { locateMagpie, probeGateway, fetchGatewayModels, DEFAULT_ADDR } = await import('../src/gateway.js')
   assert.equal(DEFAULT_ADDR, '127.0.0.1:3425')
