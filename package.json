@@ -40,6 +40,14 @@
     }
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZRN-531/dsh-magpie-model.git"
+  },
+  "homepage": "https://github.com/ZRN-531/dsh-magpie-model#readme",
+  "bugs": {
+    "url": "https://github.com/ZRN-531/dsh-magpie-model/issues"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2"
   }

@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Syntax-check every module
+        run: |
+          for f in index.js client.js src/*.js test/*.mjs; do
+            node --check "$f"
+          done
+
+      - name: Lint the browser half (evaluates the bundle, renders every card, checks locale parity)
+        run: node test/client-lint.mjs
+
+      - name: Integration tests
+        # The suite is written to skip any case whose precondition is absent:
+        # no magpie binary here means the gateway and live-turn cases skip, and
+        # binding :53 without root skips the DNS case — the rest still run. So it
+        # stays green on a bare runner while proving the contracts that matter.
+        run: node test/integration.mjs
