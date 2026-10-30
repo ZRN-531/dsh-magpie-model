@@ -78,6 +78,9 @@ window.__ModuleLoader__.load({
         'models.test': '测试',
         'models.testing': '测试中…',
         'models.show': '显示',
+        'models.ctxLabel': '上下文',
+        'models.outLabel': '最大输出',
+        'models.inLabel': '输入',
         'models.hide': '隐藏',
         'models.showing': '在选择器中显示',
         'models.curatedHint': '取消勾选即可隐藏；模型在选择器里按此列表从上到下的顺序排列。',
@@ -184,6 +187,9 @@ window.__ModuleLoader__.load({
         'models.test': 'Test',
         'models.testing': 'Testing…',
         'models.show': 'Show',
+        'models.ctxLabel': 'Context',
+        'models.outLabel': 'Max output',
+        'models.inLabel': 'Input',
         'models.hide': 'Hide',
         'models.showing': 'Shown in the picker',
         'models.curatedHint': 'Uncheck to hide; the picker orders models top-to-bottom by this list.',
@@ -299,6 +305,7 @@ window.__ModuleLoader__.load({
 .mgp_tag.muted { background: color-mix(in srgb, var(--text, #888) 9%, transparent); border-color: color-mix(in srgb, var(--text, #888) 18%, transparent); opacity: .8; }
 .mgp_tag.mgp_free { background: color-mix(in srgb, #2fbf71 16%, transparent); border-color: color-mix(in srgb, #2fbf71 34%, transparent); color: #2fbf71; font-weight: 600; }
 .mgp_ratecell { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
+.mgp_cardmeta { display: none; }
 .mgp_field { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
 .mgp_field label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .mgp_input {
@@ -327,8 +334,24 @@ window.__ModuleLoader__.load({
 @media (max-width: 720px) {
   .mgp_kv { grid-template-columns: 1fr; gap: 1px 0; }
   .mgp_kv dd { margin-bottom: 6px; }
-  .mgp_table th:nth-child(3), .mgp_table td:nth-child(3),
-  .mgp_table th:nth-child(4), .mgp_table td:nth-child(4) { display: none; }
+  /* On a phone the wide table's action column is pushed off-screen and there is
+     no horizontal scroll to reach it, so "show/hide" was unreachable. The list
+     therefore collapses to stacked cards: every control stays on screen and the
+     rate is a tag, not a column that the media query used to hide. */
+  .mgp_table.mgp_models thead { display: none; }
+  .mgp_table.mgp_models, .mgp_table.mgp_models tbody { display: block; width: 100%; }
+  .mgp_table.mgp_models tr { display: block; border: 1px solid color-mix(in srgb, var(--border, rgba(127,127,127,.22)) 60%, transparent); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .mgp_table.mgp_models td { display: block; border: none; padding: 2px 0; }
+  .mgp_table.mgp_models td[data-col='actions'] { margin-top: 8px; }
+  /* The stacked meta row replaces these separate columns on a phone. */
+  .mgp_table.mgp_models td[data-col='rate'],
+  .mgp_table.mgp_models td[data-col='owner'],
+  .mgp_table.mgp_models td[data-col='ctx'],
+  .mgp_table.mgp_models td[data-col='out'],
+  .mgp_table.mgp_models td[data-col='in'],
+  .mgp_table.mgp_models td[data-col='think'] { display: none; }
+  .mgp_table.mgp_models td[data-col='id'] { display: block; }
+  .mgp_cardmeta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
 }
 `
 
@@ -568,7 +591,7 @@ window.__ModuleLoader__.load({
         list.length === 0 && !error
           ? h('div', { className: 'mgp_notice' }, t('models.empty'))
           : null,
-        list.length === 0 ? null : h('table', { className: 'mgp_table' },
+        list.length === 0 ? null : h('table', { className: 'mgp_table mgp_models' },
           h('thead', null, h('tr', null,
             h('th', null, t('models.col.id')),
             h('th', null, t('models.col.owner')),
@@ -582,26 +605,35 @@ window.__ModuleLoader__.load({
             const state = tests[model.id]
             const shown = isShown(model.id)
             return h('tr', { key: model.id, style: shown ? undefined : { opacity: '.5' } },
-              h('td', null,
+              h('td', { 'data-col': 'id' },
                 h('div', null, model.name),
                 h('div', { className: 'mgp_mono', style: { opacity: '.62' } }, model.id),
                 model.group ? h('span', { className: 'mgp_tag muted' }, t('models.group')) : null,
+                // On a phone the rate/context/output/thinking columns collapse into
+                // this stacked tag row, so nothing is lost when the table stacks.
+                h('div', { className: 'mgp_cardmeta' },
+                  h(RateCell, { t, rates: model.rates }),
+                  h('span', { className: 'mgp_tag muted' }, `${t('models.ctxLabel')} ${context(model.contextWindow)}`),
+                  h('span', { className: 'mgp_tag muted' }, `${t('models.outLabel')} ${tokens(model.maxOutput)}`),
+                  (model.efforts ?? []).length > 0
+                    ? h('span', { className: 'mgp_tag muted' }, (model.efforts ?? []).join('/'))
+                    : null),
                 state?.result
                   ? h('div', { className: state.result.ok ? 'mgp_ok' : 'mgp_err' },
                       state.result.ok
                         ? `${String(state.result.ms)}ms · ${String(state.result.reasoningTokens ?? 0)} reasoning tok · ${JSON.stringify(String(state.result.reply ?? '').slice(0, 40))}`
                         : String(state.result.error ?? ''))
                   : null),
-              h('td', null, model.ownedBy ?? '—'),
-              h('td', { className: 'num' }, h(RateCell, { t, rates: model.rates })),
-              h('td', { className: 'num' }, context(model.contextWindow)),
-              h('td', { className: 'num' }, tokens(model.maxOutput)),
-              h('td', null, model.vision ? t('models.vision') : t('models.textOnly')),
-              h('td', null, (model.efforts ?? []).length === 0
+              h('td', { 'data-col': 'owner' }, model.ownedBy ?? '—'),
+              h('td', { className: 'num', 'data-col': 'rate' }, h(RateCell, { t, rates: model.rates })),
+              h('td', { className: 'num', 'data-col': 'ctx' }, context(model.contextWindow)),
+              h('td', { className: 'num', 'data-col': 'out' }, tokens(model.maxOutput)),
+              h('td', { 'data-col': 'in' }, model.vision ? t('models.vision') : t('models.textOnly')),
+              h('td', { 'data-col': 'think' }, (model.efforts ?? []).length === 0
                 ? h('span', { style: { opacity: '.5' } }, '—')
                 : (model.efforts ?? []).map(level => h('span', { key: level, className: 'mgp_tag muted' }, level))),
-              h('td', null,
-                h('div', { className: 'mgp_row', style: { gap: '6px', flexWrap: 'nowrap' } },
+              h('td', { 'data-col': 'actions' },
+                h('div', { className: 'mgp_row', style: { gap: '6px' } },
                   h('button', {
                     className: 'mgp_btn', disabled: saving,
                     title: shown ? t('models.hide') : t('models.show'),
