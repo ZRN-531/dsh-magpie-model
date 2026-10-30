@@ -210,15 +210,26 @@ export class MagpieAdapter {
     const state = this.deps.state()
     if (state.settings?.enabled === false) return []
     const ids = new Set(state.membership[provider] ?? [])
-    return state.catalog
-      .filter(entry => ids.has(entry.id))
-      .map(entry => ({
-        provider,
-        id: entry.id,
-        name: entry.name,
-        description: describeRow(entry),
-        inputModalities: [...entry.inputModalities],
-      }))
+    let rows = state.catalog.filter(entry => ids.has(entry.id))
+
+    // Curation: `visibleModels` both selects and orders. Empty = show everything in
+    // catalog order; non-empty = show only those, in the order the user arranged.
+    // A curated id the catalog no longer lists is simply absent — the next sync
+    // prunes it from the setting (see index.js). This is what lets a user with six
+    // models keep the picker to the one or two they actually use, pinned on top.
+    const visible = Array.isArray(state.settings?.visibleModels) ? state.settings.visibleModels.filter(id => typeof id === 'string') : []
+    if (visible.length > 0) {
+      const rank = new Map(visible.map((id, i) => [id, i]))
+      rows = rows.filter(row => rank.has(row.id)).sort((a, b) => rank.get(a.id) - rank.get(b.id))
+    }
+
+    return rows.map(entry => ({
+      provider,
+      id: entry.id,
+      name: entry.name,
+      description: describeRow(entry),
+      inputModalities: [...entry.inputModalities],
+    }))
   }
 
   /**
@@ -254,10 +265,49 @@ export class MagpieAdapter {
   }
 
   /**
+   * The models to try for one turn, in order: the requested model first, then its
+   * fallbacks.
+   *
+   * Fallback exists because a pooled upstream account intermittently answers empty
+   * or drops the connection — observed repeatedly on this gateway, and the whole
+   * point of a model *aggregator* is to survive that. The chain is:
+   *   - `[primary]` when `autoFallback` is off, or the model is a routing group
+   *     (a group already does its own failover inside magpie), or nothing else is
+   *     selectable;
+   *   - the explicit `fallbackChain` when set, filtered to models in the catalog;
+   *   - otherwise every other non-group model, in catalog order.
+   * Capped at primary + 3 so a genuinely dead upstream cannot cascade forever.
+   *
+   * @param {string} primary
+   * @returns {string[]}
+   */
+  fallbackChain(primary) {
+    const state = this.deps.state()
+    const settings = state.settings ?? {}
+    if (settings.autoFallback === false) return [primary]
+    const primaryRow = this.rowFor(primary)
+    if (primaryRow?.group === true) return [primary]
+    const usable = (state.catalog ?? []).filter(row => !row.group && row.id !== primary).map(row => row.id)
+    if (usable.length === 0) return [primary]
+    const configured = Array.isArray(settings.fallbackChain) ? settings.fallbackChain.filter(id => typeof id === 'string' && usable.includes(id)) : []
+    const rest = configured.length > 0 ? configured : usable
+    return [primary, ...rest].slice(0, 4)
+  }
+
+  /**
    * One turn. The generator the kernel drives; yields the harness event vocabulary.
    *
-   * @param {object} options - GenerateOptions: messages, tools, reasoningEffort,
-   *   maxTokens, temperature, sessionId, signal, provider, model
+   * This is the **outer** half: it runs one attempt and, if the attempt fails
+   * *transiently before emitting any content*, moves to the next model in the
+   * chain. The "before emitting any content" guard is the safety property that
+   * makes failover safe: once a single text/reasoning/tool delta has been shown
+   * to the kernel, this turn's output is committed, and retrying on another model
+   * would double-emit the turn. So a failover only ever happens on a blank turn —
+   * exactly the upstream-empty/dropped case — never on a partial answer. Cancels
+   * (the caller aborted) and 4xx refusals are never retried on another model;
+   * they propagate unchanged.
+   *
+   * @param {object} options - GenerateOptions
    * @param {string} baseUrl - frozen by `prepareCall`
    * @yields {{ type: string }} block/delta events, then `usage`, then `finish`
    */
@@ -268,6 +318,55 @@ export class MagpieAdapter {
       return
     }
 
+    const chain = this.fallbackChain(options.model)
+    let lastFinish = null
+    for (let index = 0; index < chain.length; index += 1) {
+      const modelId = chain[index]
+      /** Buffer this attempt's events until we know it produced content, so a
+       *  blank attempt can be abandoned without ever reaching the kernel. */
+      const buffered = []
+      let finish = null
+      let producedContent = false
+      for await (const event of this.attemptStream({ ...options, model: modelId }, baseUrl)) {
+        if (event !== null && event.type === 'finish') { finish = event.reason; break }
+        buffered.push(event)
+        // `usage` is not content: a blank turn can still carry a zero-token usage
+        // frame. Only an actual block/text/reasoning/tool delta commits the turn.
+        if (event !== null && (event.type === 'block-start' || event.type === 'text-delta' || event.type === 'reasoning-delta' || event.type === 'tool-call-delta')) {
+          producedContent = true
+        }
+      }
+      lastFinish = finish ?? lastFinish
+      const code = finish?.failure?.code
+      const transientBlank = finish !== null && finish.kind === 'error'
+        && (code === CODE.empty || code === CODE.server || code === CODE.timeout || code === CODE.transport)
+        && producedContent === false
+      if (transientBlank && index < chain.length - 1) {
+        this.deps.warn?.(`magpie: ${modelId} failed transiently (${String(code)}) with no output; falling back to ${chain[index + 1]}`)
+        continue
+      }
+      for (const event of buffered) yield event
+      if (index > 0 && finish !== null && finish.kind !== 'error') {
+        // Tell the user which model actually answered — silently serving a
+        // different model than the one picked would be a surprising lie.
+        this.deps.warn?.(`magpie: answered with fallback model ${modelId}`)
+      }
+      if (finish !== null) yield { type: 'finish', reason: finish }
+      return
+    }
+    // The chain was exhausted (only reachable if every attempt was transient-blank).
+    if (lastFinish !== null) yield { type: 'finish', reason: lastFinish }
+  }
+
+  /**
+   * One attempt at one model. The generator the kernel drives; yields the harness
+   * event vocabulary. `options.model` is the exact model to call.
+   *
+   * @param {object} options - GenerateOptions
+   * @param {string} baseUrl - frozen by `prepareCall`
+   * @yields {{ type: string }} block/delta events, then `usage`, then `finish`
+   */
+  async * attemptStream(options, baseUrl) {
     const row = this.rowFor(options.model)
     const warnings = []
 
@@ -335,7 +434,8 @@ export class MagpieAdapter {
     const run = async () => {
       try {
         armIdle()
-        const response = await fetch(`${String(baseUrl).replace(/\/+$/, '')}/v1/chat/completions`, {
+        const doFetch = this.deps.fetch ?? fetch
+        const response = await doFetch(`${String(baseUrl).replace(/\/+$/, '')}/v1/chat/completions`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',

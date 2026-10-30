@@ -177,6 +177,18 @@ export function createApiRoutes(deps) {
           }
           patch.refreshMinutes = Math.floor(minutes)
         }
+        if (body.autoFallback !== undefined) patch.autoFallback = body.autoFallback === true
+        // Both lists are arrays of model ids. Unknown ids are harmless (they simply
+        // never resolve); the next catalog sync prunes them. Cap the length so a
+        // malformed client cannot stuff megabytes into the store.
+        if (body.fallbackChain !== undefined) {
+          if (!Array.isArray(body.fallbackChain)) throw httpError(400, 'fallbackChain must be an array of model ids')
+          patch.fallbackChain = body.fallbackChain.map(String).filter(s => s !== '').slice(0, 50)
+        }
+        if (body.visibleModels !== undefined) {
+          if (!Array.isArray(body.visibleModels)) throw httpError(400, 'visibleModels must be an array of model ids')
+          patch.visibleModels = body.visibleModels.map(String).filter(s => s !== '').slice(0, 200)
+        }
         if (Object.keys(patch).length === 0) throw httpError(400, 'the request named no setting to change')
         // A field a bundle patch pins is not the user's to change: it would be
         // overridden at every read, so accepting the write would show a saved

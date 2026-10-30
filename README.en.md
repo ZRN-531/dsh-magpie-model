@@ -18,6 +18,8 @@ magpie ships a *handover* feature: when it detects the host agent (it knows dsh 
 - **Local DNS forwarder** (required on Android) — magpie is a pure-Go binary that reads `/etc/resolv.conf`, which does not exist on Android (`/etc` points at a read-only `/system/etc`). The plugin runs a UDP forwarder on port 53 that hands queries to public resolvers.
 - **Catalog sync** — pulls `/v1/models`, maps to dsh modelInfo (context window, max output, thinking levels, vision). Periodic and on demand.
 - **Thinking levels that actually work** — maps the harness `off` to the wire `none`; the rest pass through unchanged on `reasoning_effort`. Measured: `off` → 0 reasoning tokens, `xhigh` → tens.
+- **Automatic failover** — if a model fails (empty response / dropped connection) **before emitting any output**, retry on the next available model. Never duplicates output; a user cancellation or a 4xx is not switched; the model that actually answered is reported.
+- **Model pin / hide / order** — keep the picker to the one or two of six models you use, pinned to the top; local only, zero cost.
 - **Glass settings page** — gateway/DNS status, per-model test, usage dashboard (by model / daily curve), switches that take effect on save (the gateway restarts automatically; no engine restart).
 - **Works out of the box** — `serveWeb` is on by default; open `http://127.0.0.1:3430/?k=<key>` to sign in more magpie account channels.
 
@@ -46,6 +48,9 @@ TERMUX_VERSION=1 MAGPIE_MIRROR=https://ghfast.top/ MAGPIE_BIN_DIR="$HOME/.local/
 | `webAddr` | `''` (→ `127.0.0.1:3430`) | Page address |
 | `webKey` | `magpie-dsh-local` | Page key; magpie wants 16+ chars from `[A-Za-z0-9-._~]` |
 | `refreshMinutes` | `10` | Catalog refresh interval; 0 = off |
+| `autoFallback` | `true` | If a model fails (empty/dropped) **before emitting any output**, retry on the next model (never duplicates output; cancellations and 4xx are not switched) |
+| `fallbackChain` | `[]` | Explicit fallback order (model ids); empty = every other non-group model, catalog order |
+| `visibleModels` | `[]` | Which models the picker shows, and their order; empty = all, non-empty = only these in this order |
 
 Fields pinned by a bundle patch render disabled in the page and are refused with `409` — a patch value is an in-memory overlay, never written into the persisted settings file.
 

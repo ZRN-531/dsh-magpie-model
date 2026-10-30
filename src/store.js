@@ -138,6 +138,16 @@ export function defaultSettings() {
     dns: true,
     /** Catalog refresh interval, minutes. 0 disables periodic refresh. */
     refreshMinutes: 10,
+    /**
+     * When a model fails transiently (empty response / dropped connection) before
+     * emitting any content, retry the turn on the next available model. Off means
+     * a blank turn is reported as-is. See `MagpieAdapter.fallbackChain`.
+     */
+    autoFallback: true,
+    /** Explicit fallback order (model ids). Empty = every other non-group model, in catalog order. */
+    fallbackChain: [],
+    /** Models shown in the picker (curation). Empty = all; non-empty = only these, ordered. */
+    visibleModels: [],
     /** Distribution: `self` updates in place; `managed` stands the writer down. */
     distribution: 'self',
   }

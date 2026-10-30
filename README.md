@@ -18,6 +18,8 @@ magpie 自带 handover：它检测到宿主 agent（它把 dsh 记为 PenguinHar
 - **本地 DNS 转发器**（Android 必需）：magpie 是纯 Go 二进制，读 `/etc/resolv.conf` 取 DNS，而 Android 上该文件不存在（`/etc` 指向只读的 `/system/etc`）。插件在本地 53 端口起一个 UDP 转发器，转发到公共 DNS。
 - **模型目录同步**：从网关 `/v1/models` 拉取，映射成 dsh 的 modelInfo（上下文窗口、最大输出、思考档位、vision）。定时 + 按需刷新。
 - **思考档位真实生效**：把 harness 的 `off` 映射成 wire 的 `none`，其余同名透传，通过 `reasoning_effort` 下发。实测 `off` → 0 reasoning tokens，`xhigh` → 数十 token。
+- **自动故障切换**：模型在**还没输出任何内容**时遇到空响应/连接中断，自动换下一个可用模型重试，绝不重复输出；用户取消、4xx 拒绝不切换；结果如实标注实际服务的模型。
+- **模型固定 / 隐藏 / 排序**：6+ 个模型里只留常用的，并钉到选择器顶部；纯本地，零成本。
 - **毛玻璃设置页**：网关/DNS 状态、逐模型测速、用量看板（按模型 / 按日曲线）、开关即时生效（写后自动重启网关，无需重启引擎）。
 - **默认值即用**：装好即启用 `serveWeb`，访问 `http://127.0.0.1:3430/?k=<key>` 登录更多 magpie 账号渠道。
 
@@ -47,6 +49,9 @@ TERMUX_VERSION=1 MAGPIE_MIRROR=https://ghfast.top/ MAGPIE_BIN_DIR="$HOME/.local/
 | `webAddr` | `''`（→ `127.0.0.1:3430`） | 网页地址 |
 | `webKey` | `magpie-dsh-local` | 网页密钥，magpie 要求 16+ 字符（`[A-Za-z0-9-._~]`） |
 | `refreshMinutes` | `10` | 清单刷新间隔，0 = 不定时 |
+| `autoFallback` | `true` | 模型在**还没输出内容**时遇到空响应/中断，自动换下一个模型重试（不重复输出；取消、4xx 不切换） |
+| `fallbackChain` | `[]` | 显式回退顺序（模型 id）；空 = 其它所有非路由组模型，按目录顺序 |
+| `visibleModels` | `[]` | 选择器里显示哪些模型及顺序；空 = 全部，非空 = 仅这些且按此顺序 |
 
 bundle patch 里钉死的字段（`pinned`）在页面上会灰掉、不可编辑——patch 值只在本进程内存里覆盖，不写进持久设置文件。
 

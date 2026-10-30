@@ -994,6 +994,102 @@ record('a gateway that is not there fails as TRANSPORT, not as a hang', async ()
   console.log(`    dead gateway: TRANSPORT in ${String(ms)}ms — ${finish.reason.failure.message.slice(0, 90)}`)
 })
 
+record('fallback: a transient blank failure switches to the next model, once, with no duplicates', async () => {
+  const { MagpieAdapter, ROUTE } = await import('../src/adapter.js')
+  const calls = []
+  // A stub gateway: the first model answers empty (a transient upstream failure),
+  // the second answers a real reply. Every request is recorded so we can assert
+  // the second model was tried and that no user-visible content was repeated.
+  const stub = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push(body.model)
+    if (body.model === 'primary/dead') return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    return new Response(
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'MAGPIE_OK' }, finish_reason: null }] })}\n\n` +
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n` +
+      'data: [DONE]\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    )
+  }
+  const adapter = new MagpieAdapter({
+    state: () => ({
+      catalog: [{ id: 'primary/dead', name: 'Dead', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 }, { id: 'alt/good', name: 'Good', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 }],
+      membership: { [ROUTE]: ['primary/dead', 'alt/good'] },
+      settings: { enabled: true, autoFallback: true },
+    }),
+    baseUrl: () => 'http://stub', recordUsage: () => {}, warn: () => {},
+    fetch: stub,
+  })
+  const events = []
+  for await (const e of adapter.stream({ provider: ROUTE, model: 'primary/dead', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] }, 'http://stub')) events.push(e)
+  const finish = events.find(e => e.type === 'finish')
+  const text = events.filter(e => e.type === 'text-delta').map(e => e.text).join('')
+  console.log(`    calls: [${calls.join(', ')}] → finish=${finish?.reason.kind} text=${JSON.stringify(text)}`)
+  assert.deepEqual(calls, ['primary/dead', 'alt/good'], 'it tried the dead model, then exactly one fallback')
+  assert.equal(finish.reason.kind, 'stop', 'the fallback turn succeeded')
+  assert.equal(text, 'MAGPIE_OK', 'the answer appears exactly once — no duplicated content')
+})
+
+record('fallback: a 4xx refusal is NOT switched to another model', async () => {
+  const { MagpieAdapter, ROUTE } = await import('../src/adapter.js')
+  const calls = []
+  const stub = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push(body.model)
+    return new Response(JSON.stringify({ error: { message: 'bad request' } }), { status: 400, headers: { 'content-type': 'application/json' } })
+  }
+  const adapter = new MagpieAdapter({
+    state: () => ({ catalog: [
+      { id: 'a/one', name: 'One', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 },
+      { id: 'b/two', name: 'Two', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 }],
+      membership: { [ROUTE]: ['a/one', 'b/two'] }, settings: { enabled: true, autoFallback: true } }),
+    baseUrl: () => 'http://stub', recordUsage: () => {}, warn: () => {}, fetch: stub,
+  })
+  const events = []
+  for await (const e of adapter.stream({ provider: ROUTE, model: 'a/one', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }] }, 'http://stub')) events.push(e)
+  const finish = events.find(e => e.type === 'finish')
+  console.log(`    calls: [${calls.join(', ')}] → ${finish?.reason.kind}/${finish?.reason.failure?.code}`)
+  assert.deepEqual(calls, ['a/one'], 'a 4xx is the request, not the upstream — one call, no failover')
+  assert.equal(finish.reason.kind, 'error')
+  assert.equal(finish.reason.failure.code, 'CLIENT_ERROR')
+})
+
+record('fallback: a failure AFTER content was emitted does NOT switch models (no double output)', async () => {
+  const { MagpieAdapter, ROUTE } = await import('../src/adapter.js')
+  const calls = []
+  const stub = async (url, init) => {
+    calls.push(JSON.parse(init.body).model)
+    // Emit some text, then drop without a finish — a partial answer already shown.
+    return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'partial' }, finish_reason: null }] })}\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  const adapter = new MagpieAdapter({
+    state: () => ({ catalog: [
+      { id: 'a/one', name: 'One', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 },
+      { id: 'b/two', name: 'Two', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 }],
+      membership: { [ROUTE]: ['a/one', 'b/two'] }, settings: { enabled: true, autoFallback: true } }),
+    baseUrl: () => 'http://stub', recordUsage: () => {}, warn: () => {}, fetch: stub,
+  })
+  const events = []
+  for await (const e of adapter.stream({ provider: ROUTE, model: 'a/one', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }] }, 'http://stub')) events.push(e)
+  const text = events.filter(e => e.type === 'text-delta').map(e => e.text).join('')
+  console.log(`    calls: [${calls.join(', ')}] → emitted=${JSON.stringify(text)}`)
+  assert.deepEqual(calls, ['a/one'], 'content was committed, so it must not retry on another model')
+  assert.equal(text, 'partial', 'the partial answer is emitted once, never duplicated')
+})
+
+record('curation: visibleModels both selects and orders the picker', async () => {
+  const { MagpieAdapter, ROUTE } = await import('../src/adapter.js')
+  const rows = ['a/one', 'b/two', 'c/three'].map(id => ({ id, name: id, group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 }))
+  const makeAdapter = (visibleModels) => new MagpieAdapter({
+    state: () => ({ catalog: rows, membership: { [ROUTE]: ['a/one', 'b/two', 'c/three'] }, settings: { enabled: true, visibleModels } }),
+    baseUrl: () => 'http://x', recordUsage: () => {},
+  })
+  assert.deepEqual((await makeAdapter([]).listModels(ROUTE)).map(m => m.id), ['a/one', 'b/two', 'c/three'], 'empty = everything, catalog order')
+  assert.deepEqual((await makeAdapter(['c/three', 'a/one']).listModels(ROUTE)).map(m => m.id), ['c/three', 'a/one'], 'non-empty = only those, in the user’s order')
+  assert.deepEqual((await makeAdapter(['gone/x']).listModels(ROUTE)).map(m => m.id), [], 'an id the catalog lacks is simply absent')
+  console.log('    curation: selection + ordering + missing-id handling all correct')
+})
+
 // ── runner ────────────────────────────────────────────────────────────────────
 let failed = 0
 for (const { name, fn } of results) {

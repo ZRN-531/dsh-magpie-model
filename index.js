@@ -329,6 +329,22 @@ export function apply(ctx, config) {
     runtime.membership = built.membership
     runtime.catalogError = null
     runtime.catalogAt = Date.now()
+
+    // Prune curation lists of ids the gateway no longer offers, so a vanished
+    // model does not linger in `visibleModels` (hiding everything if it was the
+    // only one shown) or `fallbackChain` (a dead fallback tried every turn).
+    const live = new Set(built.catalog.map(row => row.id))
+    const settingsNow = settings.get()
+    const pruned = {}
+    for (const key of ['visibleModels', 'fallbackChain']) {
+      const list = settingsNow[key]
+      if (Array.isArray(list)) {
+        const kept = list.filter(id => live.has(id))
+        if (kept.length !== list.length) pruned[key] = kept
+      }
+    }
+    if (Object.keys(pruned).length > 0) settings.update(pruned)
+
     if (changed || options.force === true) ctx.emit?.('llm/adapters-updated')
     logger.info?.(`magpie-model: ${String(built.catalog.length)} model(s) from the gateway`)
     return { ok: true, models: built.catalog.length }

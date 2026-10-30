@@ -77,6 +77,11 @@ window.__ModuleLoader__.load({
         'models.empty': '网关没有列出任何模型。这通常意味着 magpie 里还没有登录任何账号渠道——打开网页控制台登录一个。',
         'models.test': '测试',
         'models.testing': '测试中…',
+        'models.show': '显示',
+        'models.hide': '隐藏',
+        'models.showing': '在选择器中显示',
+        'models.curatedHint': '取消勾选即可隐藏；模型在选择器里按此列表从上到下的顺序排列。',
+        'models.pinnedOrder': '已固定选择顺序',
         'models.col.id': '模型',
         'models.col.context': '上下文',
         'models.col.output': '最大输出',
@@ -104,6 +109,8 @@ window.__ModuleLoader__.load({
         'settings.serveWebHint': '从同一个进程提供 magpie web 的页面，用于登录账号渠道。',
         'settings.dns': '运行本地 DNS 转发器',
         'settings.dnsHint': '关掉后 magpie 将解析不了任何域名，除非系统另有 DNS。',
+        'settings.autoFallback': '自动故障切换',
+        'settings.autoFallbackHint': '某模型在还没输出任何内容时遇到空响应或连接中断，自动换下一个可用模型重试（不会重复输出；取消和 4xx 不切换）。',
         'settings.addr': '网关地址',
         'settings.addrHint': '留空用 magpie 自己的默认（127.0.0.1:3425）。环境变量 MAGPIE_ADDR 优先于此。',
         'settings.webAddr': '网页地址',
@@ -172,6 +179,11 @@ window.__ModuleLoader__.load({
         'models.empty': 'The gateway lists no models. That usually means no account channel is signed in inside magpie yet — open the web console and sign one in.',
         'models.test': 'Test',
         'models.testing': 'Testing…',
+        'models.show': 'Show',
+        'models.hide': 'Hide',
+        'models.showing': 'Shown in the picker',
+        'models.curatedHint': 'Uncheck to hide; the picker orders models top-to-bottom by this list.',
+        'models.pinnedOrder': 'Pinned order',
         'models.col.id': 'Model',
         'models.col.context': 'Context',
         'models.col.output': 'Max output',
@@ -199,6 +211,8 @@ window.__ModuleLoader__.load({
         'settings.serveWebHint': 'Serves magpie web\'s page from the same process, for signing account channels in.',
         'settings.dns': 'Run the local DNS forwarder',
         'settings.dnsHint': 'Off leaves magpie unable to resolve any hostname unless the system provides DNS another way.',
+        'settings.autoFallback': 'Automatic failover',
+        'settings.autoFallbackHint': 'If a model fails (empty response or dropped connection) before it emits any output, retry the turn on the next available model. Never duplicates output; cancellations and 4xx are not switched.',
         'settings.addr': 'Gateway address',
         'settings.addrHint': 'Empty uses magpie\'s own default (127.0.0.1:3425). The MAGPIE_ADDR environment variable outranks this.',
         'settings.webAddr': 'Page address',
@@ -463,9 +477,31 @@ window.__ModuleLoader__.load({
         dns.enabled === true && listening.length === 0 ? h('div', { className: 'mgp_notice' }, t('dns.needRoot')) : null)
     }
 
-    function ModelsCard({ t, models, error, reload, busy, setBusy }) {
+    function ModelsCard({ t, models, error, reload, busy, setBusy, settings }) {
       const [tests, setTests] = useState({})
+      const [saving, setSaving] = useState(false)
       const list = Array.isArray(models?.models) ? models.models : []
+
+      // Curation state: `visibleModels` empty means "everything, catalog order".
+      // The per-row toggle turns that into an explicit ordered list on first use —
+      // seeding it from the current order so the picker does not visibly reshuffle.
+      const visible = Array.isArray(settings?.visibleModels) ? settings.visibleModels : []
+      const curated = visible.length > 0
+      const isShown = id => (curated ? visible.includes(id) : true)
+      const orderedIds = () => (curated ? visible : list.map(m => m.id))
+
+      const toggle = async (id) => {
+        const current = orderedIds()
+        const next = isShown(id) ? current.filter(x => x !== id) : [...current, id]
+        // Showing everything again collapses back to the empty "all" form.
+        const payload = next.length === list.length ? [] : next
+        setSaving(true)
+        try {
+          await api('/settings', { body: { visibleModels: payload }, timeout: 15000 })
+        } catch { /* the reload below reflects reality */ }
+        setSaving(false)
+        reload()
+      }
 
       const test = async (model, efforts) => {
         setTests(prev => ({ ...prev, [model]: { running: true } }))
@@ -493,6 +529,7 @@ window.__ModuleLoader__.load({
           h('h3', { style: { margin: 0 } }, `${t('models.title')} · ${String(list.length)} ${t('models.count')}`),
           h('span', { className: 'mgp_spacer' }),
           h('button', { className: 'mgp_btn', disabled: busy, onClick: refreshing }, t('models.refresh'))),
+        h('p', { className: 'mgp_hint' }, t('models.curatedHint')),
         error ? h('div', { className: 'mgp_err' }, error) : null,
         list.length === 0 && !error
           ? h('div', { className: 'mgp_notice' }, t('models.empty'))
@@ -508,7 +545,8 @@ window.__ModuleLoader__.load({
             h('th', null, ''))),
           h('tbody', null, list.map(model => {
             const state = tests[model.id]
-            return h('tr', { key: model.id },
+            const shown = isShown(model.id)
+            return h('tr', { key: model.id, style: shown ? undefined : { opacity: '.5' } },
               h('td', null,
                 h('div', null, model.name),
                 h('div', { className: 'mgp_mono', style: { opacity: '.62' } }, model.id),
@@ -526,11 +564,18 @@ window.__ModuleLoader__.load({
               h('td', null, (model.efforts ?? []).length === 0
                 ? h('span', { style: { opacity: '.5' } }, '—')
                 : (model.efforts ?? []).map(level => h('span', { key: level, className: 'mgp_tag muted' }, level))),
-              h('td', null, h('button', {
-                className: 'mgp_btn',
-                disabled: state?.running === true,
-                onClick: () => test(model.id, model.efforts),
-              }, state?.running === true ? t('models.testing') : t('models.test'))))
+              h('td', null,
+                h('div', { className: 'mgp_row', style: { gap: '6px', flexWrap: 'nowrap' } },
+                  h('button', {
+                    className: 'mgp_btn', disabled: saving,
+                    title: shown ? t('models.hide') : t('models.show'),
+                    onClick: () => toggle(model.id),
+                  }, shown ? `✓ ${t('models.show')}` : t('models.hide')),
+                  h('button', {
+                    className: 'mgp_btn',
+                    disabled: state?.running === true,
+                    onClick: () => test(model.id, model.efforts),
+                  }, state?.running === true ? t('models.testing') : t('models.test')))))
           }))))
     }
 
@@ -630,6 +675,7 @@ window.__ModuleLoader__.load({
         h('h3', null, t('settings.title')),
         checkbox('enabled', t('settings.enabled'), t('settings.enabledHint')),
         checkbox('dns', t('settings.dns'), t('settings.dnsHint')),
+        checkbox('autoFallback', t('settings.autoFallback'), t('settings.autoFallbackHint')),
         checkbox('serveWeb', t('settings.serveWeb'), t('settings.serveWebHint')),
         text('addr', t('settings.addr'), t('settings.addrHint'), '127.0.0.1:3425'),
         draft.serveWeb === true ? text('webAddr', t('settings.webAddr'), '', '127.0.0.1:3430') : null,
@@ -701,7 +747,7 @@ window.__ModuleLoader__.load({
           h('p', { className: 'mgp_pitch' }, t('pitch'))),
         h(GatewayCard, { t, status: status.value, reload, busy, setBusy }),
         h(DnsCard, { t, status: status.value }),
-        h(ModelsCard, { t, models: models.value, error: models.error ?? status.value?.catalogError ?? null, reload, busy, setBusy }),
+        h(ModelsCard, { t, models: models.value, error: models.error ?? status.value?.catalogError ?? null, reload, busy, setBusy, settings: status.value?.settings }),
         h(UsageCard, { t, stats: stats.value, error: stats.error }),
         h(SettingsCard, { t, status: status.value, reload, setBusy }),
         h(LogCard, { t, status: status.value }))
