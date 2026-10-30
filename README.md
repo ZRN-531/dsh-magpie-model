@@ -1,5 +1,7 @@
 # dsh-magpie-model
 
+> English docs: [README.en.md](README.en.md).
+
 把 [magpie](https://usemagpie.ai) 的本地网关接进 [DeepSeek Harness（dsh）](https://github.com/deepseek-ai/deepseek-harness) 的模型选择器。
 
 magpie 把各家 agent 的技能收在一处；这个插件把它的本地网关变成一个 dsh provider 路由：插件自己拉起并守护 `magpie serve` 进程，替纯 Go 的 magpie 补上 Android 缺失的本地 DNS 解析，从网关同步模型清单（含思考档位与上下文窗口），并以 dsh-llm 的 adapter 契约把 OpenAI 兼容流翻译成 harness 事件。
