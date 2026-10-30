@@ -83,6 +83,18 @@ node test/client-lint.mjs     # 浏览器半：在 stub 的 ModuleLoader 下真�
 node test/verify-live.mjs     # 活体核验：token 握手 + 插件 status/models + profile 健康 + 一次真实往返
 ```
 
+## 卸载
+
+```sh
+# 普通卸载：摘掉插件注册与源码；保留 magpie 二进制、账号、以及插件自己的设置/用量数据
+curl -fsSL https://gcore.jsdelivr.net/gh/ZRN-531/dsh-magpie-model@master/uninstall.sh | sh
+
+# 连同插件设置/用量一起删（magpie 二进制和账号仍然保留）
+# curl -fsSL https://gcore.jsdelivr.net/gh/ZRN-531/dsh-magpie-model@master/uninstall.sh | sh -s -- --purge
+```
+
+卸载**始终保留** magpie 二进制（`$DSH_HOME/.local/bin/magpie`）和 magpie 账号（`$DSH_HOME/.config/magpie`）——它们可能被别的工具共用、且账号是登录数据。只想彻底清干净时再手动删这两处。卸载后**重启引擎**。
+
 ## 自检与自动修复：`doctor`
 
 dsh Mobile 的 app 更新会重装引擎目录，但保留 `$DSH_HOME` 下的用户数据。本插件所需的一切（源码、magpie 二进制、账号、设置、profile 注册）都刻意放在 `$DSH_HOME`，所以更新通常不影响它。但有两种失败是**静默的**——插件直接不加载、模型选择器里没有 Magpie 分组，只有引擎日志里才看得出：

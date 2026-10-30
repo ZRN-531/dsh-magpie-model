@@ -71,6 +71,19 @@ node test/verify-live.mjs     # live end-to-end against a running dsh (token han
 
 Every test skips cleanly when its precondition is absent (no magpie binary, no root for :53, no running engine), so CI is green on a bare runner. Add a case for every bug you fix.
 
+## Uninstall
+
+```sh
+# plain: removes the plugin registration + source; keeps the magpie binary, your
+# accounts, and the plugin's own settings/usage data
+curl -fsSL https://gcore.jsdelivr.net/gh/ZRN-531/dsh-magpie-model@master/uninstall.sh | sh
+
+# also delete the plugin's settings/usage data (magpie binary and accounts still kept)
+# curl -fsSL https://gcore.jsdelivr.net/gh/ZRN-531/dsh-magpie-model@master/uninstall.sh | sh -s -- --purge
+```
+
+Uninstall **always keeps** the magpie binary (`$DSH_HOME/.local/bin/magpie`) and magpie accounts (`$DSH_HOME/.config/magpie`) — they may be shared and the accounts are your sign-in data; delete those by hand only if you are sure. Restart the engine afterwards.
+
 ## Self-check & repair: `doctor`
 
 A dsh Mobile app update reinstalls the engine directory but keeps user data under `$DSH_HOME`. Everything this plugin needs (source, magpie binary, accounts, settings, profile registration) lives under `$DSH_HOME`, so an update normally leaves it working. But two failures are **silent** — the plugin simply does not load and the picker shows no Magpie group, with the only evidence in the engine log:
