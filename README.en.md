@@ -26,17 +26,23 @@ magpie ships a *handover* feature: when it detects the host agent (it knows dsh 
 
 ## Install
 
-```sh
-# 1) install magpie to a PERSISTENT location — the engine's own bin is wiped on
-#    engine update, so ~/.local/bin is where it must live
-TERMUX_VERSION=1 MAGPIE_MIRROR=https://ghfast.top/ MAGPIE_BIN_DIR="$HOME/.local/bin" \
-  sh -c "$(curl -fsSL https://usemagpie.ai/install.sh)"
+**One line (recommended — this is what you share with a friend):**
 
-# 2) place this package where dsh resolves profile bundles, and add
-#    "dsh-magpie-model" to your profile's dsh.profile.bundles
+```sh
+# primary (jsDelivr CDN):
+curl -fsSL https://gcore.jsdelivr.net/gh/ZRN-531/dsh-magpie-model@master/install.sh | sh
+
+# if that cannot fetch the script, use the GitHub proxy:
+# curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/ZRN-531/dsh-magpie-model/master/install.sh | sh
 ```
 
-`package.json` declares `dsh.bundle.patch` (host half) and `dsh.client` (browser half). Point your profile's `node_modules` at this package (or `link:` to it) and list `dsh-magpie-model` in `dsh.profile.bundles`.
+It (1) installs the magpie binary to `$DSH_HOME/.local/bin` (survives engine updates), (2) puts the plugin source at `$DSH_HOME/plugins/dsh-magpie-model`, and (3) registers it in your dsh profile (writes `dependencies` + `dsh.profile.bundles`, makes the `node_modules` symlink). Then **restart the dsh engine** — a **Magpie** group appears in the model picker.
+
+> **Prerequisite**: dsh Mobile must already be installed and started once (so `~/.dsh` and the `web` profile exist). magpie accounts (models and credentials) are not shipped with the plugin — sign in to your own channels from the plugin's settings page → *web console*.
+>
+> Knobs (env): `DSH_HOME` / `DSH_PROFILE` (default `~/.dsh`, `web`), `MAGPIE_SKIP=1` (you manage the magpie binary yourself), `MAGPIE_MIRROR=` (a mirror for a restricted network). The magpie binary is ~60 MB; direct GitHub download is usually 1–2 min.
+
+`package.json` declares `dsh.bundle.patch` (host half) and `dsh.client` (browser half).
 
 ## Configuration
 

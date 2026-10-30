@@ -26,16 +26,35 @@ magpie 自带 handover：它检测到宿主 agent（它把 dsh 记为 PenguinHar
 
 ## 安装
 
-```sh
-# 1) 安装 magpie 到持久位置（引擎目录会被引擎更新清空，务必装到 ~/.local/bin）
-TERMUX_VERSION=1 MAGPIE_MIRROR=https://ghfast.top/ MAGPIE_BIN_DIR="$HOME/.local/bin" \
-  sh -c "$(curl -fsSL https://usemagpie.ai/install.sh)"
+**一条命令（推荐，分享给好友也是这个）：**
 
-# 2) 把本插件放进 dsh 的 profile
-#    （本仓库是一个 dsh bundle 包：含 dsh.bundle.patch + dsh.client 半身）
+```sh
+# 主用（jsDelivr CDN，国内通常可达）：
+curl -fsSL https://gcore.jsdelivr.net/gh/ZRN-531/dsh-magpie-model@master/install.sh | sh
+
+# 若上面取不到脚本，换这个（GitHub 代理）：
+# curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/ZRN-531/dsh-magpie-model/master/install.sh | sh
 ```
 
-`package.json` 里声明了 `dsh.bundle.patch`（host 半）与 `dsh.client`（浏览器半）。把仓库目录放进 profile 的 `node_modules`（或 `link:` 到别处），再在 `dsh.profile.bundles` 里加 `dsh-magpie-model` 即可。
+它会：① 把 magpie 二进制装到 `$DSH_HOME/.local/bin`（引擎更新不会清掉）；② 把插件源码放到 `$DSH_HOME/plugins/dsh-magpie-model`；③ 在 dsh profile 里注册（写 `dependencies` + `dsh.profile.bundles` + 建 `node_modules` 软链）。装完**重启 dsh 引擎**（设置 → 重启引擎），模型选择器里就出现 **Magpie** 分组。
+
+> **前提**：本机得先装好 **dsh Mobile** 并至少启动过一次（这样 `~/.dsh` 和 `web` profile 才存在）。magpie 账号（模型与凭据）不随插件附带——装好后在插件设置页点「网页控制台」登录你自己的渠道。
+>
+> 常用开关（环境变量）：`DSH_HOME` / `DSH_PROFILE`（默认 `~/.dsh`、`web`）、`MAGPIE_SKIP=1`（你已自己管理 magpie 二进制时跳过安装）、`MAGPIE_MIRROR=`（网络受限时指定镜像）。magpie 二进制约 60MB，直连 GitHub 下载通常 1–2 分钟。
+
+手动安装（了解原理时）：
+
+```sh
+# 1) magpie 二进制 → 持久位置
+TERMUX_VERSION=1 MAGPIE_BIN_DIR="$HOME/.local/bin" sh -c "$(curl -fsSL https://usemagpie.ai/install.sh)"
+# 2) 插件放进 profile，注册 bundle 并建软链
+git clone https://github.com/ZRN-531/dsh-magpie-model "$HOME/.dsh/plugins/dsh-magpie-model"
+#    然后在 $HOME/.dsh/profiles/web/package.json 的 dependencies 加 "dsh-magpie-model": "link:../../plugins/dsh-magpie-model"
+#    并在 dsh.profile.bundles 追加 "dsh-magpie-model"，再建软链 node_modules/dsh-magpie-model → 该目录
+#    或直接用上面的 install.sh 一键完成
+```
+
+`package.json` 里声明了 `dsh.bundle.patch`（host 半）与 `dsh.client`（浏览器半）。
 
 ## 配置
 
