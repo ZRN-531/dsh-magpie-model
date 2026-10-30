@@ -199,3 +199,66 @@ export function modelInfoFor(row, provider, model) {
   }
   return info
 }
+
+/**
+ * The billing terms magpie publishes for one model, reduced to what a user can
+ * act on: the multiplier, the effective USD price per 1M tokens, and whether the
+ * model is free.
+ *
+ * `rate` and `list` come from magpie's own web API (`GET /api/providers`), NOT
+ * from `/v1/models` — the gateway's model listing carries only a USD-per-token
+ * `pricing` block, with no multiplier. magpie's provider page shows `rate` beside
+ * each model, and that is the "倍率" the user sees; mirroring it here keeps the
+ * two consistent.
+ *
+ * There is **no time-window discount** in this data — WorkBuddy bills against a
+ * daily credit pool, and neither the provider record nor the model record carries
+ * an off-peak/peak field. So the UI states the multiplier and price as they are,
+ * and does not invent a discount schedule that does not exist.
+ *
+ * @param {{ rate?: unknown, list?: { input?: unknown, output?: unknown, cache_read?: unknown } }} raw
+ *   one provider-API model record
+ * @returns {object} a `rates` payload, or `{}` when there is nothing to show
+ */
+export function ratesFrom(raw) {
+  const rate = Number(raw?.rate)
+  const hasRate = Number.isFinite(rate) && rate > 0
+  const input = Number(raw?.list?.input)
+  const output = Number(raw?.list?.output)
+  const cacheRead = Number(raw?.list?.cache_read)
+  const hasList = Number.isFinite(input) || Number.isFinite(output)
+  if (!hasRate && !hasList) return {}
+  return {
+    ...(hasRate ? { rate } : {}),
+    ...(hasList ? {
+      list: {
+        ...(Number.isFinite(input) ? { input } : {}),
+        ...(Number.isFinite(output) ? { output } : {}),
+        ...(Number.isFinite(cacheRead) ? { cacheRead } : {}),
+      },
+    } : {}),
+    // "Free" means the multiplier is zero or absent *and* there is no price —
+    // hy3 is genuinely 0:00, and the badge should say so plainly.
+    free: (!hasRate || rate === 0) && !(input > 0) && !(output > 0),
+  }
+}
+
+/**
+ * A one-line human summary of {@link ratesFrom}'s output, for the picker's model
+ * description — the only custom text the stock picker renders per model.
+ * @param {object} rates - a `rates` payload
+ * @returns {string}
+ */
+export function describeRates(rates) {
+  if (rates === undefined || rates === null) return ''
+  if (rates.free === true) return '免费'
+  const parts = []
+  if (typeof rates.rate === 'number') parts.push(`倍率 ${rates.rate}×`)
+  const input = rates.list?.input
+  const output = rates.list?.output
+  if (typeof input === 'number' || typeof output === 'number') {
+    const fmt = v => (typeof v === 'number' ? `$${v}` : '—')
+    parts.push(`输入 ${fmt(input)}/M · 输出 ${fmt(output)}/M`)
+  }
+  return parts.join(' · ')
+}

@@ -110,7 +110,8 @@ const renderable = {
     settings: { enabled: true, addr: '', serveWeb: true, webAddr: '', webKey: 'magpie-dsh-local', dns: true, refreshMinutes: 10 },
     modelCount: 2 },
   models: { models: [
-    { id: 'workbuddy/hy3', name: 'Hy3', ownedBy: 'workbuddy', group: false, reasoning: true, contextWindow: 192000, maxOutput: 64000, vision: true, inputModalities: ['text', 'image'], efforts: ['low', 'high'] },
+    { id: 'workbuddy/hy3', name: 'Hy3', ownedBy: 'workbuddy', group: false, reasoning: true, contextWindow: 192000, maxOutput: 64000, vision: true, inputModalities: ['text', 'image'], efforts: ['low', 'high'], rates: { free: true } },
+    { id: 'workbuddy/deepseek-v4-pro', name: 'DeepSeek-V4-Pro', ownedBy: 'workbuddy', group: false, reasoning: true, contextWindow: 1000000, maxOutput: 128000, vision: true, inputModalities: ['text', 'image'], efforts: ['none', 'high', 'xhigh'], rates: { rate: 0.51, list: { input: 0.66, output: 1.98, cacheRead: 0.022 } } },
     { id: 'group/cheap-first', name: '便宜优先', group: true, reasoning: true, contextWindow: 1000000, maxOutput: 131072, vision: true, inputModalities: ['text', 'image'], efforts: ['high'] },
   ] },
   stats: { total: { turns: 3, inputTokens: 1200, outputTokens: 340, reasoningTokens: 90, cacheReadTokens: 0 },

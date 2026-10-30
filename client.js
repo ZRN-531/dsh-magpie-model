@@ -88,6 +88,10 @@ window.__ModuleLoader__.load({
         'models.col.input': '输入',
         'models.col.thinking': '思考档位',
         'models.col.owner': '渠道',
+        'models.col.rate': '倍率 / 价格',
+        'models.free': '免费',
+        'models.rateBadge': '倍率',
+        'models.perM': '/M',
         'models.group': '路由组',
         'models.vision': '图像',
         'models.textOnly': '文本',
@@ -190,6 +194,10 @@ window.__ModuleLoader__.load({
         'models.col.input': 'Input',
         'models.col.thinking': 'Thinking levels',
         'models.col.owner': 'Channel',
+        'models.col.rate': 'Multiplier / price',
+        'models.free': 'Free',
+        'models.rateBadge': 'Rate',
+        'models.perM': '/M',
         'models.group': 'routing group',
         'models.vision': 'image',
         'models.textOnly': 'text',
@@ -289,6 +297,8 @@ window.__ModuleLoader__.load({
   border: 1px solid color-mix(in srgb, var(--primary, #4a7dff) 26%, transparent);
 }
 .mgp_tag.muted { background: color-mix(in srgb, var(--text, #888) 9%, transparent); border-color: color-mix(in srgb, var(--text, #888) 18%, transparent); opacity: .8; }
+.mgp_tag.mgp_free { background: color-mix(in srgb, #2fbf71 16%, transparent); border-color: color-mix(in srgb, #2fbf71 34%, transparent); color: #2fbf71; font-weight: 600; }
+.mgp_ratecell { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
 .mgp_field { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
 .mgp_field label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .mgp_input {
@@ -477,6 +487,30 @@ window.__ModuleLoader__.load({
         dns.enabled === true && listening.length === 0 ? h('div', { className: 'mgp_notice' }, t('dns.needRoot')) : null)
     }
 
+    /**
+     * The billing cell: a free badge, the multiplier, and the list price. The
+     * multiplier (`rate`) is what magpie's own provider page shows; the price is
+     * the provider's list price per 1M tokens. All of it comes from magpie's web
+     * API — this cell never invents a number, so when the gateway reports none it
+     * shows a neutral dash.
+     */
+    function RateCell({ t, rates }) {
+      if (rates === undefined || rates === null || (rates.rate === undefined && rates.list === undefined)) {
+        return h('span', { style: { opacity: '.4' } }, '—')
+      }
+      if (rates.free === true) {
+        return h('span', { className: 'mgp_tag mgp_free' }, t('models.free'))
+      }
+      return h('div', { className: 'mgp_ratecell' },
+        typeof rates.rate === 'number'
+          ? h('span', { className: 'mgp_tag' }, `${String(rates.rate)}×`)
+          : null,
+        rates.list && (typeof rates.list.input === 'number' || typeof rates.list.output === 'number')
+          ? h('div', { className: 'mgp_mono mgp_hint', style: { fontSize: '11px', marginTop: '2px' } },
+              `${typeof rates.list.input === 'number' ? `$${String(rates.list.input)}` : '—'} / ${typeof rates.list.output === 'number' ? `$${String(rates.list.output)}` : '—'} ${t('models.perM')}`)
+          : null)
+    }
+
     function ModelsCard({ t, models, error, reload, busy, setBusy, settings }) {
       const [tests, setTests] = useState({})
       const [saving, setSaving] = useState(false)
@@ -538,6 +572,7 @@ window.__ModuleLoader__.load({
           h('thead', null, h('tr', null,
             h('th', null, t('models.col.id')),
             h('th', null, t('models.col.owner')),
+            h('th', null, t('models.col.rate')),
             h('th', null, t('models.col.context')),
             h('th', null, t('models.col.output')),
             h('th', null, t('models.col.input')),
@@ -558,6 +593,7 @@ window.__ModuleLoader__.load({
                         : String(state.result.error ?? ''))
                   : null),
               h('td', null, model.ownedBy ?? '—'),
+              h('td', { className: 'num' }, h(RateCell, { t, rates: model.rates })),
               h('td', { className: 'num' }, context(model.contextWindow)),
               h('td', { className: 'num' }, tokens(model.maxOutput)),
               h('td', null, model.vision ? t('models.vision') : t('models.textOnly')),

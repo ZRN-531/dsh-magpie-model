@@ -30,7 +30,7 @@
 
 import { CODE, UpstreamError, mapUsage, finishReason, BlockTracker, readSseStream } from './stream.js'
 import { toChatMessages, toToolDefs, hasImageContent, repairToolPairing } from './messages.js'
-import { describeRow, effortToWire, modelInfoFor } from './catalog.js'
+import { describeRow, describeRates, effortToWire, modelInfoFor } from './catalog.js'
 
 /**
  * The provider route this adapter owns — the picker's group key.
@@ -227,7 +227,7 @@ export class MagpieAdapter {
       provider,
       id: entry.id,
       name: entry.name,
-      description: describeRow(entry),
+      description: [describeRow(entry), describeRates(entry.rates)].filter(Boolean).join(' · '),
       inputModalities: [...entry.inputModalities],
     }))
   }

@@ -123,6 +123,7 @@ export function createApiRoutes(deps) {
             inputModalities: [...row.inputModalities],
             efforts: row.efforts.map(e => e.id),
             ...(row.pricing === undefined ? {} : { pricing: row.pricing }),
+            ...(row.rates === undefined ? {} : { rates: row.rates }),
             ...(Array.isArray(row.nativeEndpoints) ? { nativeEndpoints: [...row.nativeEndpoints] } : {}),
           })),
         })

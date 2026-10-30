@@ -37,9 +37,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ROUTE, ROUTE_LABEL, MagpieAdapter } from './src/adapter.js'
-import { buildCatalog, describeRow } from './src/catalog.js'
+import { buildCatalog, describeRow, ratesFrom } from './src/catalog.js'
 import { DATA_DIR_NAME, JsonStore, addUsage, defaultSettings, defaultStats, resolveDshHome, statsView } from './src/store.js'
-import { DEFAULT_ADDR, DEFAULT_WEB_ADDR, fetchGatewayModels, locateMagpie, probeGateway, superviseGateway } from './src/gateway.js'
+import { DEFAULT_ADDR, DEFAULT_WEB_ADDR, fetchGatewayModels, fetchProviderRates, locateMagpie, probeGateway, superviseGateway } from './src/gateway.js'
 import { startLocalResolver } from './src/dns.js'
 import { createApiRoutes } from './src/api.js'
 import { rejectionFor } from './src/trust.js'
@@ -323,6 +323,33 @@ export function apply(ctx, config) {
       return { ok: false, error: result.error, models: 0 }
     }
     const built = buildCatalog(result.models, ROUTE)
+
+    // Attach the billing terms (multiplier `rate` + price `list`) from magpie's
+    // web API. This is best-effort: when the web page is not served (serveWeb off)
+    // or the key is wrong, there is simply no rate badge — the catalog still syncs.
+    let ratesOk = false
+    try {
+      const webAddr = settings.get().serveWeb === true ? (settings.get().webAddr === '' ? DEFAULT_WEB_ADDR : settings.get().webAddr) : ''
+      if (webAddr !== '') {
+        const rates = await fetchProviderRates(`http://${webAddr}`, { webKey: settings.get().webKey, signal: options.signal })
+        if (rates.ok) {
+          ratesOk = true
+          for (const row of built.catalog) {
+            const raw = rates.byModel.get(row.id)
+            if (raw !== undefined) {
+              const r = ratesFrom(raw)
+              if (Object.keys(r).length > 0) row.rates = r
+            }
+          }
+        } else {
+          logger.debug?.(`magpie-model: no rate data — ${rates.error}`)
+        }
+      }
+    } catch (error) {
+      logger.debug?.(`magpie-model: no rate data — ${error.message}`)
+    }
+    runtime.ratesAt = ratesOk ? Date.now() : runtime.ratesAt
+
     const changed = runtime.catalog.length !== built.catalog.length
       || runtime.catalog.some((row, i) => row.id !== built.catalog[i]?.id)
     runtime.catalog = built.catalog

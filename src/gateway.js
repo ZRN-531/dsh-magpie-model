@@ -171,6 +171,68 @@ export async function fetchGatewayModels(baseUrl, options = {}) {
 }
 
 /**
+ * Read the per-model billing terms (multiplier `rate` + `list` price table) from
+ * magpie's **web API**, which is where magpie's own provider page gets them.
+ *
+ * This is deliberately separate from {@link fetchGatewayModels}: the OpenAI
+ * `/v1/models` listing carries only a USD-per-token `pricing` block and no
+ * multiplier, whereas `/api/providers` carries `rate` per model — the "倍率" the
+ * user sees in magpie's UI. The endpoint needs the page's session cookie, which
+ * is minted from `?k=<webKey>`, so this returns `{ ok: false }` when the web page
+ * is not served or the key is wrong; the caller then simply shows no rate badges
+ * rather than failing the whole catalog sync.
+ *
+ * @param {string} webBaseUrl - `http://<webAddr>`
+ * @param {{ webKey?: string, timeoutMs?: number, signal?: AbortSignal }} [options]
+ * @returns {Promise<{ ok: true, byModel: Map<string, object>, providers: Array<object> } | { ok: false, error: string }>}
+ */
+export async function fetchProviderRates(webBaseUrl, options = {}) {
+  const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 8000
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error('provider listing timed out')), timeoutMs)
+  if (options.signal !== undefined) {
+    if (options.signal.aborted === true) controller.abort(options.signal.reason)
+    else options.signal.addEventListener('abort', () => controller.abort(options.signal.reason), { once: true })
+  }
+  const root = String(webBaseUrl).replace(/\/+$/, '')
+  try {
+    // 1) exchange the page key for a session cookie.
+    const params = new URLSearchParams()
+    if (typeof options.webKey === 'string' && options.webKey !== '') params.set('k', options.webKey)
+    const auth = await fetch(`${root}/${params.toString() === '' ? '' : `?${params.toString()}`}`, {
+      redirect: 'manual', signal: controller.signal,
+    })
+    const jar = (auth.headers.getSetCookie ? auth.headers.getSetCookie() : []).map(c => c.split(';')[0]).join('; ')
+    if (jar === '') return { ok: false, error: 'the magpie web console did not issue a session cookie (wrong webKey?)' }
+    // 2) read the providers, keyed by model id.
+    const response = await fetch(`${root}/api/providers`, { headers: { accept: 'application/json', cookie: jar }, signal: controller.signal })
+    if (!response.ok) return { ok: false, error: `the web console answered ${String(response.status)} for /api/providers` }
+    const body = await response.json()
+    const providers = Array.isArray(body?.providers) ? body.providers : []
+    const byModel = new Map()
+    // A model id can appear in several providers; the first occurrence wins, which
+    // matches the order the page lists them. `deepseek-v4-pro` and the prefixed
+    // `workbuddy/deepseek-v4-pro` are the same model, so both keys are recorded.
+    for (const provider of providers) {
+      for (const model of Array.isArray(provider?.models) ? provider.models : []) {
+        const id = typeof model?.id === 'string' ? model.id : ''
+        if (id === '') continue
+        const record = { rate: model.rate, list: model.list, provider: provider.id }
+        if (!byModel.has(id)) byModel.set(id, record)
+        const prefixed = `${provider.id}/${id}`
+        if (!byModel.has(prefixed)) byModel.set(prefixed, record)
+      }
+    }
+    return { ok: true, byModel, providers }
+  } catch (error) {
+    const cause = typeof error?.cause?.message === 'string' ? ` — ${error.cause.message}` : ''
+    return { ok: false, error: `could not read the web console's provider list: ${error.message}${cause}` }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * Supervise one magpie gateway.
  *
  * The handle reports what it did (adopted an existing gateway, or spawned its

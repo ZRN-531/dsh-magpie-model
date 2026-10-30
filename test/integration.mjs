@@ -1090,6 +1090,30 @@ record('curation: visibleModels both selects and orders the picker', async () =>
   console.log('    curation: selection + ordering + missing-id handling all correct')
 })
 
+record('catalog: ratesFrom maps magpie rate/list onto multiplier + price + free', async () => {
+  const { ratesFrom, describeRates } = await import('../src/catalog.js')
+  // A paid model with a multiplier and a list price.
+  const paid = ratesFrom({ rate: 0.51, list: { input: 0.66, output: 1.98, cache_read: 0.022 } })
+  assert.equal(paid.rate, 0.51)
+  assert.equal(paid.free, false)
+  assert.equal(paid.list.input, 0.66)
+  assert.equal(paid.list.output, 1.98)
+  assert.equal(paid.list.cacheRead, 0.022, 'cache_read is renamed cacheRead')
+  // A genuinely free model (rate 0/absent, price 0).
+  const free = ratesFrom({ list: { input: 0, output: 0 } })
+  assert.equal(free.free, true)
+  assert.equal(free.rate, undefined, 'no rate when there is none')
+  // Nothing to show → empty object (the cell renders a dash).
+  assert.deepEqual(ratesFrom({}), {})
+  assert.deepEqual(ratesFrom(null), {})
+  // The picker summary is human text, not JSON.
+  assert.ok(describeRates(paid).includes('0.51'), 'the summary names the multiplier')
+  assert.ok(describeRates(paid).includes('$0.66'), 'and the list price')
+  assert.equal(describeRates(free), '免费')
+  assert.equal(describeRates(undefined), '')
+  console.log(`    rates: paid=${JSON.stringify(paid)} free=${JSON.stringify(free)}`)
+})
+
 // ── runner ────────────────────────────────────────────────────────────────────
 let failed = 0
 for (const { name, fn } of results) {
