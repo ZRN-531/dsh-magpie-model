@@ -1,0 +1,1 @@
+{"meta": {"title": "Magpie Model", "description": "Brings magpie's local gateway into dsh: the plugin starts and supervises magpie serve, supplies the local DNS resolution a pure-Go magpie cannot get on Android, and syncs the gateway's model catalog. No API key to enter — magpie's own account channels hold the credentials."}}

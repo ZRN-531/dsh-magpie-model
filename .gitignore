@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# runtime data the plugin writes under $DSH_HOME — never source
+magpie-model/
+*.log
+*.jsonl
+
+# secrets / local config
+.env
+.env.*
+*.pem
+*.key
+!icon.svg
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# build / test artifacts
+coverage/
+*.tgz

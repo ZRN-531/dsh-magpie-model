@@ -1,0 +1,1 @@
+{"meta": {"title": "Magpie Model", "description": "把 magpie 的本地网关接进 dsh：插件自己拉起并守护 magpie serve，替纯 Go 的 magpie 补上 Android 缺失的 DNS 解析，从网关同步模型清单（含思考档位与上下文窗口）。无需填 API Key —— 凭据由 magpie 自己的账号渠道持有。"}}

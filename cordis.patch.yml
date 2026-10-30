@@ -1,0 +1,8 @@
+# dsh-magpie-model bundle patch.
+#
+# One insert mounts the host half; the browser half is declared by package.json's
+# dsh.client and binds to the bare-package-name line (subpath lines carry no half).
+- insert:
+    - id: magpie-model
+      name: 'dsh-magpie-model'
+      config: {}
