@@ -284,5 +284,11 @@ export function nameWithRate(name, rates) {
   if (rates === undefined || rates === null) return name
   if (rates.free === true) return `${name} · 免费`
   if (typeof rates.rate === 'number' && rates.rate > 0) return `${name} · x${String(rates.rate)}`
+  // No multiplier, but a list price: some channels (zcode, for one) are billed at
+  // list price and carry no `rate` at all. Falling through silently here meant the
+  // picker showed a bare name for exactly those models while the settings table
+  // showed their price — inconsistent. Fall back to the output price per 1M.
+  const output = rates.list?.output
+  if (typeof output === 'number' && output > 0) return `${name} · $${String(output)}/M`
   return name
 }

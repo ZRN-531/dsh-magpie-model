@@ -247,10 +247,19 @@ export class MagpieAdapter {
   async resolveModel(provider, model) {
     const row = this.rowFor(model)
     if (row === undefined) {
-      // `reasoning` stays absent: the harness reads `undefined` as "no
-      // reasoning support" and otherwise dereferences `reasoning.efforts`,
-      // so a `false` here would throw over the whole provider group.
-      return { provider, id: model, name: model, inputModalities: ['text'], context: { contextWindow: 262144 } }
+      // `reasoning: false`, not omitted, so this shape matches `modelInfoFor`'s
+      // non-thinking branch — an unlisted model and a listed non-thinking model
+      // must report the same thing. The harness dereferences `reasoning.efforts`
+      // only when `reasoning` is truthy, so a bare `false` is safe here, while an
+      // absent field leaves the picker guessing for every model of the group.
+      return {
+        provider,
+        id: model,
+        name: model,
+        inputModalities: ['text'],
+        context: { contextWindow: 262144 },
+        reasoning: false,
+      }
     }
     return modelInfoFor(row, provider, model)
   }
