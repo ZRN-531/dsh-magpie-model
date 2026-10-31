@@ -217,7 +217,15 @@ export async function fetchProviderRates(webBaseUrl, options = {}) {
       for (const model of Array.isArray(provider?.models) ? provider.models : []) {
         const id = typeof model?.id === 'string' ? model.id : ''
         if (id === '') continue
-        const record = { rate: model.rate, list: model.list, provider: provider.id }
+        const record = {
+          rate: model.rate,
+          list: model.list,
+          provider: provider.id,
+          // The friendly name (e.g. "WorkBuddy" for "workbuddy", "ZCode" for
+          // "zcode") — it rides along so the picker can say *who* the multiplier
+          // belongs to, not just the multiplier.
+          providerName: typeof provider?.name === 'string' && provider.name !== '' ? provider.name : provider.id,
+        }
         if (!byModel.has(id)) byModel.set(id, record)
         const prefixed = `${provider.id}/${id}`
         if (!byModel.has(prefixed)) byModel.set(prefixed, record)

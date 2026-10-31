@@ -1125,6 +1125,9 @@ record('catalog: nameWithRate folds the multiplier into the picker name', async 
   assert.equal(nameWithRate('Model', undefined), 'Model')
   assert.equal(nameWithRate('Model', { free: false }), 'Model', 'no rate, not free, no price = unchanged')
   assert.equal(nameWithRate('GLM-5.3-Flash', { list: { input: 0.11952, output: 0.41831 } }), 'GLM-5.3-Flash · $0.41831/M', 'a channel billed at list price has no rate; show the output price')
+  assert.equal(nameWithRate('GLM-5.3-Flash', { list: { input: 0.11952, output: 0.41831 }, providerName: 'ZCode' }), 'GLM-5.3-Flash · $0.41831/M · ZCode', 'the channel name rides after the price')
+  assert.equal(nameWithRate('DeepSeek-V4-Pro', { rate: 0.51, providerName: 'WorkBuddy' }), 'DeepSeek-V4-Pro · x0.51 · WorkBuddy', 'the channel name rides after the multiplier')
+  assert.equal(nameWithRate('Hy3', { free: true, providerName: 'WorkBuddy' }), 'Hy3 · 免费 · WorkBuddy', 'free models still name their channel')
   console.log('    picker names: x0.51 / 免费 / unchanged all correct')
 })
 

@@ -240,6 +240,9 @@ export function ratesFrom(raw) {
         ...(Number.isFinite(cacheRead) ? { cacheRead } : {}),
       },
     } : {}),
+    // The channel's friendly name (WorkBuddy / ZCode / …). Present so the picker
+    // can append it after the multiplier/price, answering "whose 0.51×?".
+    ...(typeof raw?.providerName === 'string' && raw.providerName !== '' ? { providerName: raw.providerName } : {}),
     // "Free" means the multiplier is zero or absent *and* there is no price —
     // hy3 is genuinely 0:00, and the badge should say so plainly.
     free: (!hasRate || rate === 0) && !(input > 0) && !(output > 0),
@@ -282,13 +285,14 @@ export function describeRates(rates) {
  */
 export function nameWithRate(name, rates) {
   if (rates === undefined || rates === null) return name
-  if (rates.free === true) return `${name} · 免费`
-  if (typeof rates.rate === 'number' && rates.rate > 0) return `${name} · x${String(rates.rate)}`
+  const provider = typeof rates.providerName === 'string' && rates.providerName !== '' ? ` · ${rates.providerName}` : ''
+  if (rates.free === true) return `${name} · 免费${provider}`
+  if (typeof rates.rate === 'number' && rates.rate > 0) return `${name} · x${String(rates.rate)}${provider}`
   // No multiplier, but a list price: some channels (zcode, for one) are billed at
   // list price and carry no `rate` at all. Falling through silently here meant the
   // picker showed a bare name for exactly those models while the settings table
   // showed their price — inconsistent. Fall back to the output price per 1M.
   const output = rates.list?.output
-  if (typeof output === 'number' && output > 0) return `${name} · $${String(output)}/M`
+  if (typeof output === 'number' && output > 0) return `${name} · $${String(output)}/M${provider}`
   return name
 }
