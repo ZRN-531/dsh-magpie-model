@@ -1131,6 +1131,42 @@ record('catalog: nameWithRate folds the multiplier into the picker name', async 
   console.log('    picker names: x0.51 / 免费 / unchanged all correct')
 })
 
+record('store: cost accounting (USD + rate-weighted) and per-install webKey', async () => {
+  const { JsonStore, defaultStats, defaultSettings, addUsage, statsView, pricingFromCatalog, generateWebKey, ensureWebKey } = await import('../src/store.js')
+  const dir = mkdtempSync(path.join(tmpdir(), 'mgp-cost-'))
+  try {
+    const stats = new JsonStore(path.join(dir, 'stats.json'), defaultStats(), { log: () => {} })
+    addUsage(stats, { model: 'workbuddy/deepseek-v4-pro', inputTokens: 1000000, outputTokens: 500000, cacheReadTokens: 100000, at: Date.now() })
+    addUsage(stats, { model: 'workbuddy/hy3', inputTokens: 1000000, outputTokens: 500000, at: Date.now() })
+    const catalog = [
+      { id: 'workbuddy/deepseek-v4-pro', rates: { rate: 0.51, list: { input: 0.66, output: 1.98, cacheRead: 0.022 } } },
+      { id: 'workbuddy/hy3', rates: { free: true, list: { input: 0, output: 0 } } },
+    ]
+    const view = statsView(stats, pricingFromCatalog(catalog))
+    // 1M input × $0.66/M + 0.5M output × $1.98/M + 0.1M cacheRead × $0.022/M = 0.66 + 0.99 + 0.0022
+    assert.ok(Math.abs(view.cost.usd - 1.6522) < 1e-9, `USD cost is 1.6522, got ${view.cost.usd}`)
+    // (1M + 0.5M + 0.1M) × 0.51 = 816000
+    assert.equal(view.cost.rated, 816000, 'rate-weighted units use every token times the multiplier')
+    assert.equal(view.cost.unpricedTurns, 0, 'a free model with a known 0 price is priced, not unpriced')
+
+    // A model with no pricing at all: counted as unpriced, excluded from USD.
+    addUsage(stats, { model: 'no-price/x', inputTokens: 1000, outputTokens: 500, at: Date.now() })
+    const view2 = statsView(stats, pricingFromCatalog(catalog))
+    assert.equal(view2.cost.unpricedTurns, 1, 'a channel that never published a price is unpriced')
+    assert.ok(Math.abs(view2.cost.usd - 1.6522) < 1e-9, 'an unpriced turn does not change the dollar total')
+
+    // webKey: mint once, reuse forever, and never equal the old shared default.
+    const key = generateWebKey()
+    assert.ok(/^[A-Za-z0-9.\-_~]{32}$/.test(key), '32 chars in magpie key alphabet')
+    const settings = new JsonStore(path.join(dir, 'settings.json'), defaultSettings(), { log: () => {} })
+    const first = ensureWebKey(settings)
+    assert.ok(/^[A-Za-z0-9.\-_~]{32}$/.test(first), 'minted key is valid')
+    assert.equal(ensureWebKey(settings), first, 'the second call reuses the persisted key')
+    assert.notEqual(first, 'magpie-dsh-local', 'no shared default any more')
+    console.log('    cost 1.6522 USD / 816000 rated / webKey per-install all correct')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 // ── runner ────────────────────────────────────────────────────────────────────
 let failed = 0
 for (const { name, fn } of results) {

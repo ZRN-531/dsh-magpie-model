@@ -105,6 +105,10 @@ window.__ModuleLoader__.load({
         'usage.output': '输出 token',
         'usage.reasoning': '思考 token',
         'usage.cacheRead': '缓存读取',
+        'usage.costUsd': '成本(美元)',
+        'usage.costRated': '倍率加权',
+        'usage.unpriced': '未计价轮次',
+        'usage.costHint': '美元按各模型 list 价计算（未公布价格的模型不计数）；倍率加权 = 全部 token × 模型倍率，反映额度消耗快慢。',
         'usage.byModel': '按模型',
         'usage.recent': '最近',
         'usage.empty': '还没有用量记录。',
@@ -214,6 +218,10 @@ window.__ModuleLoader__.load({
         'usage.output': 'Output tokens',
         'usage.reasoning': 'Reasoning tokens',
         'usage.cacheRead': 'Cache reads',
+        'usage.costUsd': 'Cost (USD)',
+        'usage.costRated': 'Rate-weighted',
+        'usage.unpriced': 'Unpriced turns',
+        'usage.costHint': 'USD uses each model\u2019s list price (unpublished models are excluded); rate-weighted = all tokens \u00d7 the model\u2019s rate, tracking how fast a credit pool drains.',
         'usage.byModel': 'By model',
         'usage.recent': 'Recent',
         'usage.empty': 'No usage recorded yet.',
@@ -661,6 +669,21 @@ window.__ModuleLoader__.load({
           h('div', { className: 'mgp_stat' }, h('b', null, tokens(total.outputTokens)), h('span', null, t('usage.output'))),
           h('div', { className: 'mgp_stat' }, h('b', null, tokens(total.reasoningTokens)), h('span', null, t('usage.reasoning'))),
           h('div', { className: 'mgp_stat' }, h('b', null, tokens(total.cacheReadTokens)), h('span', null, t('usage.cacheRead')))),
+        stats?.cost !== undefined
+          ? h('div', { className: 'mgp_stats', style: { borderTop: '1px solid color-mix(in srgb, var(--border, rgba(127,127,127,.22)) 50%, transparent)', paddingTop: '10px' } },
+              h('div', { className: 'mgp_stat' },
+                h('b', null, `$${(Number(stats.cost.usd) || 0).toFixed(4)}`),
+                h('span', null, t('usage.costUsd'))),
+              h('div', { className: 'mgp_stat' },
+                h('b', null, String(Math.round(Number(stats.cost.rated) || 0))),
+                h('span', null, t('usage.costRated'))),
+              stats.cost.unpricedTurns > 0
+                ? h('div', { className: 'mgp_stat' },
+                    h('b', null, String(stats.cost.unpricedTurns)),
+                    h('span', null, t('usage.unpriced')))
+                : null,
+              h('div', { className: 'mgp_hint', style: { flexBasis: '100%', marginTop: '6px' } }, t('usage.costHint')))
+          : null,
         // A bar per day, height scaled to the busiest day: the point is the shape
         // of the week, not the numbers, which the stats above already give.
         series.length > 0
@@ -747,7 +770,7 @@ window.__ModuleLoader__.load({
         checkbox('serveWeb', t('settings.serveWeb'), t('settings.serveWebHint')),
         text('addr', t('settings.addr'), t('settings.addrHint'), '127.0.0.1:3425'),
         draft.serveWeb === true ? text('webAddr', t('settings.webAddr'), '', '127.0.0.1:3430') : null,
-        draft.serveWeb === true ? text('webKey', t('settings.webKey'), t('settings.webKeyHint'), 'magpie-dsh-local') : null,
+        draft.serveWeb === true ? text('webKey', t('settings.webKey'), t('settings.webKeyHint'), '') : null,
         h('div', { className: 'mgp_field' },
           h('label', { htmlFor: 'mgp-refreshMinutes' }, h('span', null, t('settings.refresh'))),
           h('input', {

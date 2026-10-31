@@ -38,7 +38,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ROUTE, ROUTE_LABEL, MagpieAdapter } from './src/adapter.js'
 import { buildCatalog, describeRow, ratesFrom } from './src/catalog.js'
-import { DATA_DIR_NAME, JsonStore, addUsage, defaultSettings, defaultStats, resolveDshHome, statsView } from './src/store.js'
+import { DATA_DIR_NAME, JsonStore, addUsage, defaultSettings, defaultStats, ensureWebKey, pricingFromCatalog, resolveDshHome, statsView } from './src/store.js'
 import { DEFAULT_ADDR, DEFAULT_WEB_ADDR, fetchGatewayModels, fetchProviderRates, locateMagpie, probeGateway, superviseGateway } from './src/gateway.js'
 import { startLocalResolver } from './src/dns.js'
 import { createApiRoutes } from './src/api.js'
@@ -277,7 +277,7 @@ export function apply(ctx, config) {
       addr,
       serveWeb,
       ...(serveWeb ? { webAddr: effective().webAddr === '' ? DEFAULT_WEB_ADDR : effective().webAddr } : {}),
-      ...(serveWeb && typeof effective().webKey === 'string' && effective().webKey !== '' ? { webKey: effective().webKey } : {}),
+      ...(serveWeb ? { webKey: ensureWebKey(settings) } : {}),
       logFile: path.join(dataDir, 'gateway.log'),
       log: m => logger.info?.(`magpie-model: ${m}`),
       onEvent: event => {
@@ -331,7 +331,7 @@ export function apply(ctx, config) {
     try {
       const webAddr = settings.get().serveWeb === true ? (settings.get().webAddr === '' ? DEFAULT_WEB_ADDR : settings.get().webAddr) : ''
       if (webAddr !== '') {
-        const rates = await fetchProviderRates(`http://${webAddr}`, { webKey: settings.get().webKey, signal: options.signal })
+        const rates = await fetchProviderRates(`http://${webAddr}`, { webKey: ensureWebKey(settings), signal: options.signal })
         if (rates.ok) {
           ratesOk = true
           for (const row of built.catalog) {
@@ -551,7 +551,7 @@ export function apply(ctx, config) {
       pinned: Object.keys(configOverlay),
     }),
     catalog: () => runtime.catalog,
-    statsView: () => statsView(stats),
+    statsView: () => statsView(stats, pricingFromCatalog(runtime.catalog)),
     refresh: options => refreshCatalog(options),
     control: action => controlGateway(action),
     testModel: (model, effort) => testModel(model, effort),
@@ -601,6 +601,10 @@ export function apply(ctx, config) {
    * socket still binding is a listing that comes back empty.
    */
   async function start() {
+    // Mint and persist a web-console key before the gateway spawns, so the first
+    // run gets a random key instead of an empty one (magpie would mint a fresh key
+    // per run otherwise) and every later run reuses it.
+    ensureWebKey(settings)
     await syncResolver()
     if (disposed) return
     await syncGateway()

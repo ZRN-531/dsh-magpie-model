@@ -114,7 +114,7 @@ const renderable = {
     { id: 'workbuddy/deepseek-v4-pro', name: 'DeepSeek-V4-Pro', ownedBy: 'workbuddy', group: false, reasoning: true, contextWindow: 1000000, maxOutput: 128000, vision: true, inputModalities: ['text', 'image'], efforts: ['none', 'high', 'xhigh'], rates: { rate: 0.51, list: { input: 0.66, output: 1.98, cacheRead: 0.022 } } },
     { id: 'group/cheap-first', name: '便宜优先', group: true, reasoning: true, contextWindow: 1000000, maxOutput: 131072, vision: true, inputModalities: ['text', 'image'], efforts: ['high'] },
   ] },
-  stats: { total: { turns: 3, inputTokens: 1200, outputTokens: 340, reasoningTokens: 90, cacheReadTokens: 0 },
+  stats: { total: { turns: 3, inputTokens: 1200, outputTokens: 340, reasoningTokens: 90, cacheReadTokens: 0 }, cost: { usd: 0.0012, rated: 612, pricedTurns: 3, unpricedTurns: 0 },
     models: [{ model: 'workbuddy/hy3', turns: 3, inputTokens: 1200, outputTokens: 340, reasoningTokens: 90 }],
     series: [{ day: '2026-10-30', turns: 3, inputTokens: 1200, outputTokens: 340 }], recentTurns: [] },
 }

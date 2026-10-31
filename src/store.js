@@ -18,6 +18,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import crypto from 'node:crypto'
 
 /** Same resolution the harness home-paths helper uses: `$DSH_HOME` else `~/.dsh`. */
 export function resolveDshHome() {
@@ -132,8 +133,15 @@ export function defaultSettings() {
     serveWeb: true,
     /** The page's address when `serveWeb`. */
     webAddr: '',
-    /** A stable page key so one link survives restarts. */
-    webKey: 'magpie-dsh-local',
+    /**
+     * A stable page key so one link survives restarts.
+     *
+     * `''` means "mint one on first use". The key is no longer hardcoded to a
+     * shared default: an open-source plugin whose every installation shares one
+     * web-console key is a hygiene problem even on a loopback-only listener.
+     * {@link ensureWebKey} generates a random key once and persists it.
+     */
+    webKey: '',
     /** Whether the plugin runs the local DNS forwarder magpie needs. */
     dns: true,
     /** Catalog refresh interval, minutes. 0 disables periodic refresh. */
@@ -151,6 +159,57 @@ export function defaultSettings() {
     /** Distribution: `self` updates in place; `managed` stands the writer down. */
     distribution: 'self',
   }
+}
+
+/**
+ * Mint a random web-console key satisfying magpie's own rules: 16+ characters
+ * from `[A-Za-z0-9-._~]`. 32 base64url chars (with `-`/`_`) are comfortably in
+ * that set and carry 192 bits of entropy, so one installation's console is not
+ * another's — a shared default would be a shared door, even on loopback.
+ *
+ * @returns {string}
+ */
+export function generateWebKey() {
+  return crypto.randomBytes(24).toString('base64url')
+}
+
+/**
+ * Ensure the stored webKey exists; mint and persist one when it is empty or
+ * invalid. Kept in store.js next to the default so the rule "empty means mint"
+ * and its generator cannot drift apart.
+ *
+ * @param {JsonStore} settings
+ * @returns {string} the effective webKey
+ */
+export function ensureWebKey(settings) {
+  const current = settings.get().webKey
+  if (typeof current === 'string' && current.length >= 16 && /^[A-Za-z0-9.\-_~]+$/.test(current)) return current
+  const key = generateWebKey()
+  settings.update({ webKey: key })
+  return key
+}
+
+/**
+ * Turn the plugin's catalog rows into the pricing table `statsView` needs:
+ * model id → `{ list }` (USD per 1M tokens) and `{ rate }` (billing multiplier).
+ *
+ * A model with no list price contributes nothing to the dollar total — it is
+ * simply un-priced. A model with a list price but no rate (a channel billed at
+ * list) still has a dollar total; its rate-weighted units are absent.
+ *
+ * @param {Array<object>} catalog - normalized catalog rows (`row.rates` set)
+ * @returns {Map<string, { list?: { input?: number, output?: number, cacheRead?: number }, rate?: number }>}
+ */
+export function pricingFromCatalog(catalog) {
+  const out = new Map()
+  for (const row of Array.isArray(catalog) ? catalog : []) {
+    if (row === null || typeof row !== 'object' || row.rates === undefined) continue
+    const entry = {}
+    if (row.rates.list !== undefined) entry.list = row.rates.list
+    if (typeof row.rates.rate === 'number') entry.rate = row.rates.rate
+    if (Object.keys(entry).length > 0) out.set(row.id, entry)
+  }
+  return out
 }
 
 /**
@@ -236,20 +295,49 @@ export function addUsage(stats, record) {
  * @param {JsonStore} stats
  * @returns {object}
  */
-export function statsView(stats) {
+export function statsView(stats, pricing = new Map()) {
   const current = stats.get()
   const turns = Array.isArray(current.turns) ? current.turns : []
+  /** USD per 1M token, from a model's list price. */
+  const listOf = (model) => pricing.get(model)?.list
   /** Bucket by local day, newest last, capped at 30 buckets. */
   const days = new Map()
+  /** Rolling cost totals, computed from every recorded turn against its model's price. */
+  const cost = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, usd: 0, rated: 0, pricedTurns: 0 }
   for (const turn of turns) {
     const at = Number(turn?.at)
     if (!Number.isFinite(at)) continue
     const day = new Date(at)
     const key = `${String(day.getFullYear())}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-    const bucket = days.get(key) ?? { day: key, turns: 0, inputTokens: 0, outputTokens: 0 }
+    const bucket = days.get(key) ?? { day: key, turns: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
     bucket.turns += 1
     bucket.inputTokens += count(turn.inputTokens)
     bucket.outputTokens += count(turn.outputTokens)
+    // Cost per turn: only when this model has a list price; un-priced models are
+    // simply not counted in dollars (they may be free, or the channel did not
+    // publish a price).
+    const list = listOf(turn.model)
+    if (list !== undefined) {
+      const input = count(turn.inputTokens)
+      const output = count(turn.outputTokens)
+      const cacheRead = count(turn.cacheReadTokens)
+      const usd = (input / 1e6) * (Number(list.input) || 0)
+        + (output / 1e6) * (Number(list.output) || 0)
+        + (cacheRead / 1e6) * (Number(list.cacheRead) || 0)
+      bucket.costUsd += usd
+      cost.usd += usd
+      cost.pricedTurns += 1
+      cost.inputTokens += input
+      cost.outputTokens += output
+      cost.cacheReadTokens += cacheRead
+    }
+    // The rate-weighted units count the same tokens times the model's billing
+    // multiplier — it tracks how fast a daily credit pool drains, even for
+    // models whose channel never publishes a dollar price.
+    const rate = pricing.get(turn.model)?.rate
+    if (typeof rate === 'number' && rate > 0) {
+      cost.rated += (count(turn.inputTokens) + count(turn.outputTokens) + count(turn.cacheReadTokens)) * rate
+    }
     days.set(key, bucket)
   }
   const series = [...days.values()].sort((a, b) => a.day.localeCompare(b.day)).slice(-30)
@@ -261,5 +349,17 @@ export function statsView(stats) {
     models,
     series,
     recentTurns: turns.slice(-40).reverse(),
+    cost: {
+      usd: cost.usd,
+      rated: cost.rated,
+      pricedTurns: cost.pricedTurns,
+      inputTokens: cost.inputTokens,
+      outputTokens: cost.outputTokens,
+      cacheReadTokens: cost.cacheReadTokens,
+      // How much of the input/output token total is accounted for in dollars —
+      // so the UI can say "3 of 5 models are priced" instead of implying a dollar
+      // figure covers everything.
+      unpricedTurns: Math.max(0, (current.total?.turns ?? 0) - cost.pricedTurns),
+    },
   }
 }
