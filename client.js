@@ -338,6 +338,7 @@ window.__ModuleLoader__.load({
 .mgp_chain_name { font-size: 12.5px; }
 .mgp_chain_item .mgp_btn { padding: 1px 6px; font-size: 12px; border: none; background: transparent; }
 .mgp_chain_item .mgp_btn:disabled { opacity: .3; }
+.mgp_chain_add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .mgp_field { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
 .mgp_field label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .mgp_input {
@@ -610,8 +611,20 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'mgp_chain_name' }, nameOf(id)),
                 h('button', { className: 'mgp_btn', disabled: saving || index === 0, onClick: () => move(id, -1) }, '↑'),
                 h('button', { className: 'mgp_btn', disabled: saving || index === chain.length - 1, onClick: () => move(id, 1) }, '↓'),
-                h('button', { className: 'mgp_btn', disabled: saving, onClick: () => toggle(id) }, '×'))))
-      )
+                h('button', { className: 'mgp_btn', disabled: saving, onClick: () => toggle(id) }, '×')))),
+        list.some(m => !m.group)
+          ? h('div', { className: 'mgp_chain_add' },
+              list.filter(m => !m.group).map(m => {
+                const added = inChain(m.id)
+                return h('button', {
+                  key: m.id,
+                  className: 'mgp_btn' + (added ? ' primary' : ''),
+                  disabled: saving,
+                  title: added ? t('models.fallbackRemove') : t('models.fallbackAdd'),
+                  onClick: () => toggle(m.id),
+                }, (added ? '✓ ' : '＋ ') + (m.name.length > 22 ? m.name.slice(0, 22) + '…' : m.name))
+              }))
+          : null)
   }
 
     function ModelsCard({ t, models, error, reload, busy, setBusy, settings }) {
