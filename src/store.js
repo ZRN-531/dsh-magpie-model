@@ -147,6 +147,13 @@ export function defaultSettings() {
     /** Catalog refresh interval, minutes. 0 disables periodic refresh. */
     refreshMinutes: 10,
     /**
+     * Hours between magpie binary update checks. 0 disables the periodic check
+     * (a one-time check still runs at startup). magpie releases often; this
+     * plugin keeps the binary current so the gateway it supervises is not silently
+     * serving yesterday's providers.
+     */
+    updateHours: 6,
+    /**
      * When a model fails transiently (empty response / dropped connection) before
      * emitting any content, retry the turn on the next available model. Off means
      * a blank turn is reported as-is. See `MagpieAdapter.fallbackChain`.

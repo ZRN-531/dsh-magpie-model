@@ -55,6 +55,7 @@ It (1) installs the magpie binary to `$DSH_HOME/.local/bin` (survives engine upd
 | `webAddr` | `''` (→ `127.0.0.1:3430`) | Page address |
 | `webKey` | `''` (random key minted on first boot) | Page key; magpie wants 16+ chars from `[A-Za-z0-9-._~]`; unique per install |
 | `refreshMinutes` | `10` | Catalog refresh interval; 0 = off |
+| `updateHours` | `6` | magpie update-check interval (hours); 0 = only at startup |
 | `autoFallback` | `true` | If a model fails (empty/dropped) **before emitting any output**, retry on the next model (never duplicates output; cancellations and 4xx are not switched) |
 | `fallbackChain` | `[]` | Explicit fallback order (model ids); empty = every other non-group model, catalog order |
 | `visibleModels` | `[]` | Which models the picker shows, and their order; empty = all, non-empty = only these in this order |

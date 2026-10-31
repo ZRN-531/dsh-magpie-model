@@ -178,6 +178,13 @@ export function createApiRoutes(deps) {
           }
           patch.refreshMinutes = Math.floor(minutes)
         }
+        if (body.updateHours !== undefined) {
+          const hours = Number(body.updateHours)
+          if (!Number.isFinite(hours) || hours < 0 || hours > 720) {
+            throw httpError(400, 'the update interval must be 0-720 hours')
+          }
+          patch.updateHours = Math.floor(hours)
+        }
         if (body.autoFallback !== undefined) patch.autoFallback = body.autoFallback === true
         // Both lists are arrays of model ids. Unknown ids are harmless (they simply
         // never resolve); the next catalog sync prunes them. Cap the length so a

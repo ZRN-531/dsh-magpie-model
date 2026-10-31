@@ -1204,6 +1204,43 @@ record('fallback: fallbackChain overrides catalog order for the retry model', as
   assert.equal(finish.reason.kind, 'stop')
 })
 
+record('update: version comparison, checksum verification, atomic install', async () => {
+  const { parseVersion, isNewer, downloadAndVerify, updateMagpie, installBinary } = await import('../src/update.js')
+  const crypto = await import('node:crypto')
+  const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const path = await import('node:path')
+  assert.deepEqual(parseVersion('magpie 0.1.2434'), [0, 1, 2434])
+  assert.deepEqual(parseVersion('garbage'), [0, 0, 0])
+  assert.equal(isNewer('0.1.2434', '0.1.2432'), true)
+  assert.equal(isNewer('0.1.9', '0.1.10'), false, 'numeric comparison, not lexicographic')
+  // A tampered download is refused, not installed.
+  const bad = await downloadAndVerify('https://example.invalid/x', 'a'.repeat(64), { fetchImpl: async () => new Response(Buffer.from('hi'), { status: 200 }) })
+  assert.equal(bad.ok, false)
+  assert.ok(bad.error.includes('checksum'), 'a mismatch is reported as a checksum error')
+  // A full update pass through a stubbed feed replaces the binary atomically.
+  const dir = mkdtempSync(path.join(tmpdir(), 'mgp-upd-'))
+  try {
+    const blob = crypto.randomBytes(64)
+    const sha = crypto.createHash('sha256').update(blob).digest('hex')
+    const target = path.join(dir, 'magpie')
+    writeFileSync(target, 'old')
+    const feed = JSON.stringify({ version: '9.9.9', assets: { 'magpie-cli-android-arm64': { url: 'https://example/x', sha256: sha, size: 64 } } })
+    const stub = async (url) => url.includes('/api/latest')
+      ? new Response(feed, { status: 200 })
+      : new Response(blob, { status: 200 })
+    const result = await updateMagpie({ current: () => ({ command: target, version: '1.0.0' }) }, { fetchImpl: stub })
+    assert.equal(result.action, 'updated')
+    assert.equal(result.from, '1.0.0')
+    assert.equal(result.to, '9.9.9')
+    assert.ok(readFileSync(target).equals(blob), 'the verified download replaced the old binary')
+    // up-to-date path does not download.
+    const again = await updateMagpie({ current: () => ({ command: target, version: '9.9.9' }) }, { fetchImpl: stub })
+    assert.equal(again.action, 'up-to-date')
+    console.log('    version compare / checksum refuse / atomic replace all correct')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 // ── runner ────────────────────────────────────────────────────────────────────
 let failed = 0
 for (const { name, fn } of results) {

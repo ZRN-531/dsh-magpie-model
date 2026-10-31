@@ -40,6 +40,7 @@ import { ROUTE, ROUTE_LABEL, MagpieAdapter } from './src/adapter.js'
 import { buildCatalog, describeRow, ratesFrom } from './src/catalog.js'
 import { DATA_DIR_NAME, JsonStore, addUsage, defaultSettings, defaultStats, ensureWebKey, pricingFromCatalog, resolveDshHome, statsView } from './src/store.js'
 import { DEFAULT_ADDR, DEFAULT_WEB_ADDR, fetchGatewayModels, fetchProviderRates, locateMagpie, probeGateway, superviseGateway } from './src/gateway.js'
+import { updateMagpie } from './src/update.js'
 import { startLocalResolver } from './src/dns.js'
 import { createApiRoutes } from './src/api.js'
 import { rejectionFor } from './src/trust.js'
@@ -193,6 +194,7 @@ export function apply(ctx, config) {
     catalogError: null,
     catalogAt: 0,
     lastEvent: null,
+    lastUpdate: null,
   }
 
   /** The adapter reads its state through this closure, so a sync is visible immediately. */
@@ -207,9 +209,42 @@ export function apply(ctx, config) {
   let gateway = null
   let resolver = null
   let refreshTimer = null
+  let updateTimer = null
   let disposed = false
   let userAgent = `deepseek-harness/${version === '' ? '0.0.0' : version} (+magpie-model)`
   void resolveAttributionUserAgent(logger).then(value => { if (!disposed) userAgent = value })
+
+  // ── magpie binary self-update ───────────────────────────────────────────────
+  /**
+   * One update pass. The binary may have been replaced on disk; the running
+   * gateway is the *supervisor's* to restart, not the downloader's, so when an
+   * update landed, the supervised gateway is stopped and re-spawned — that is the
+   * only safe time to load the new binary (a running process keeps its old image).
+   */
+  async function checkForUpdate() {
+    if (settings.get().enabled === false) return
+    const located = locateMagpie()
+    if (!('command' in located)) return
+    const result = await updateMagpie({
+      current: () => ({ command: located.command, version: located.version }),
+    })
+    if (result.action === 'up-to-date') {
+      runtime.lastUpdate = { action: 'up-to-date', version: result.version, at: Date.now() }
+      return
+    }
+    if (result.action === 'error') {
+      logger.debug?.(`magpie-model: update check failed — ${result.error}`)
+      runtime.lastUpdate = { action: 'error', error: result.error, at: Date.now() }
+      return
+    }
+    logger.info?.(`magpie-model: magpie updated ${result.from} → ${result.to}; restarting the gateway`)
+    runtime.lastUpdate = { action: 'updated', from: result.from, to: result.to, at: Date.now() }
+    // Reload the supervised gateway onto the new binary: stop our own spawn only.
+    if (gateway !== null && gateway.mode === 'spawned') await gateway.stop()
+    gateway = null
+    await syncGateway()
+    await refreshCatalog({ force: true })
+  }
 
   // ── the DNS resolver ────────────────────────────────────────────────────────
   /**
@@ -547,6 +582,7 @@ export function apply(ctx, config) {
       catalogError: runtime.catalogError,
       catalogAt: runtime.catalogAt,
       lastEvent: runtime.lastEvent,
+      lastUpdate: runtime.lastUpdate,
       enabled: effective().enabled === true,
       pinned: Object.keys(configOverlay),
     }),
@@ -616,6 +652,15 @@ export function apply(ctx, config) {
       refreshTimer = setInterval(() => { void refreshCatalog() }, minutes * 60000)
       refreshTimer.unref?.()
     }
+    // A one-time update check at startup (cheap; up-to-date is a no-op), then the
+    // periodic check if configured. Kept after the catalog so the first turn is
+    // never delayed by a download.
+    const hours = Number(effective().updateHours)
+    if (Number.isFinite(hours) && hours > 0) {
+      setTimeout(() => { void checkForUpdate() }, 5000).unref?.()
+      updateTimer = setInterval(() => { void checkForUpdate() }, hours * 3600000)
+      updateTimer.unref?.()
+    }
   }
 
   // ── teardown ────────────────────────────────────────────────────────────────
@@ -635,6 +680,7 @@ export function apply(ctx, config) {
 
   ctx.effect(() => () => {
     if (refreshTimer !== null) { clearInterval(refreshTimer); refreshTimer = null }
+    if (updateTimer !== null) { clearInterval(updateTimer); updateTimer = null }
     disposed = true
     stats.dispose()
     settings.dispose()

@@ -69,6 +69,7 @@ git clone https://github.com/ZRN-531/dsh-magpie-model "$HOME/.dsh/plugins/dsh-ma
 | `webAddr` | `''`（→ `127.0.0.1:3430`） | 网页地址 |
 | `webKey` | `''`（首次启动生成随机 key） | 网页密钥，magpie 要求 16+ 字符（`[A-Za-z0-9-._~]`）；每台安装独有 |
 | `refreshMinutes` | `10` | 清单刷新间隔，0 = 不定时 |
+| `updateHours` | `6` | magpie 更新检查间隔（小时），0 = 只在启动时查 |
 | `autoFallback` | `true` | 模型在**还没输出内容**时遇到空响应/中断，自动换下一个模型重试（不重复输出；取消、4xx 不切换） |
 | `fallbackChain` | `[]` | 显式回退顺序（模型 id）；空 = 其它所有非路由组模型，按目录顺序 |
 | `visibleModels` | `[]` | 选择器里显示哪些模型及顺序；空 = 全部，非空 = 仅这些且按此顺序 |
