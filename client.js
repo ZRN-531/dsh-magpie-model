@@ -84,6 +84,14 @@ window.__ModuleLoader__.load({
         'models.hide': '隐藏',
         'models.showing': '在选择器中显示',
         'models.curatedHint': '取消勾选即可隐藏；模型在选择器里按此列表从上到下的顺序排列。',
+        'models.fallbackTitle': '回退顺序',
+        'models.fallbackHint': '主模型在未输出内容时瞬断，按此顺序依次尝试；空 = 自动按目录顺序回退。',
+        'models.fallbackAuto': '自动',
+        'models.fallbackAdd': '加入回退链',
+        'models.fallbackRemove': '移出',
+        'models.fallbackUp': '上移',
+        'models.fallbackDown': '下移',
+        'models.fallbackReset': '清空(回自动)',
         'models.pinnedOrder': '已固定选择顺序',
         'models.col.id': '模型',
         'models.col.context': '上下文',
@@ -197,6 +205,14 @@ window.__ModuleLoader__.load({
         'models.hide': 'Hide',
         'models.showing': 'Shown in the picker',
         'models.curatedHint': 'Uncheck to hide; the picker orders models top-to-bottom by this list.',
+        'models.fallbackTitle': 'Fallback order',
+        'models.fallbackHint': 'When the primary model fails before emitting output, try these in order; empty = automatic catalog order.',
+        'models.fallbackAuto': 'Automatic',
+        'models.fallbackAdd': 'Add to chain',
+        'models.fallbackRemove': 'Remove',
+        'models.fallbackUp': 'Up',
+        'models.fallbackDown': 'Down',
+        'models.fallbackReset': 'Clear (auto)',
         'models.pinnedOrder': 'Pinned order',
         'models.col.id': 'Model',
         'models.col.context': 'Context',
@@ -314,6 +330,14 @@ window.__ModuleLoader__.load({
 .mgp_tag.mgp_free { background: color-mix(in srgb, #2fbf71 16%, transparent); border-color: color-mix(in srgb, #2fbf71 34%, transparent); color: #2fbf71; font-weight: 600; }
 .mgp_ratecell { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
 .mgp_cardmeta { display: none; }
+.mgp_fallback { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--bg-soft, rgba(127,127,127,.06)) 60%, transparent); }
+.mgp_fallback h4 { font-size: 12.5px; font-weight: 600; margin: 0; }
+.mgp_chain { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mgp_chain_item { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--border, rgba(127,127,127,.28)) 70%, transparent); background: color-mix(in srgb, var(--bg, #fff) 55%, transparent); }
+.mgp_chain_num { width: 17px; height: 17px; border-radius: 50%; background: color-mix(in srgb, var(--primary, #4a7dff) 88%, transparent); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.mgp_chain_name { font-size: 12.5px; }
+.mgp_chain_item .mgp_btn { padding: 1px 6px; font-size: 12px; border: none; background: transparent; }
+.mgp_chain_item .mgp_btn:disabled { opacity: .3; }
 .mgp_field { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
 .mgp_field label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
 .mgp_input {
@@ -542,6 +566,54 @@ window.__ModuleLoader__.load({
           : null)
     }
 
+    /**
+     * The fallback chain editor: an ordered list of model ids tried, in order,
+     * when the primary fails before emitting output. Empty = automatic (the
+     * adapter falls back through every other non-group model in catalog order).
+     * Shown inline in the models card so the two lists the user curates live
+     * next to each other.
+     */
+    function FallbackPanel({ t, list, settings, reload }) {
+      const [saving, setSaving] = useState(false)
+      const chain = Array.isArray(settings?.fallbackChain) ? settings.fallbackChain.filter(id => typeof id === 'string') : []
+      const nameOf = id => (list.find(m => m.id === id)?.name ?? id)
+      const save = async (next) => {
+        setSaving(true)
+        try { await api('/settings', { body: { fallbackChain: next }, timeout: 15000 }) } catch { /* reload reflects reality */ }
+        setSaving(false)
+        reload()
+      }
+      const inChain = id => chain.includes(id)
+      const toggle = (id) => save(inChain(id) ? chain.filter(x => x !== id) : [...chain, id])
+      const move = (id, delta) => {
+        const i = chain.indexOf(id)
+        const j = i + delta
+        if (i < 0 || j < 0 || j >= chain.length) return
+        const next = [...chain]
+        ;[next[i], next[j]] = [next[j], next[i]]
+        save(next)
+      }
+
+      return h('div', { className: 'mgp_fallback' },
+        h('div', { className: 'mgp_row' },
+          h('h4', { style: { margin: 0 } }, t('models.fallbackTitle')),
+          h('span', { className: 'mgp_spacer' }),
+          chain.length > 0
+            ? h('button', { className: 'mgp_btn', disabled: saving, onClick: () => save([]) }, t('models.fallbackReset'))
+            : null),
+        h('p', { className: 'mgp_hint' }, t('models.fallbackHint')),
+        chain.length === 0
+          ? h('p', { className: 'mgp_notice', style: { margin: '8px 0 0' } }, t('models.fallbackAuto'))
+          : h('div', { className: 'mgp_chain' },
+              chain.map((id, index) => h('span', { className: 'mgp_chain_item', key: id },
+                h('span', { className: 'mgp_chain_num' }, String(index + 1)),
+                h('span', { className: 'mgp_chain_name' }, nameOf(id)),
+                h('button', { className: 'mgp_btn', disabled: saving || index === 0, onClick: () => move(id, -1) }, '↑'),
+                h('button', { className: 'mgp_btn', disabled: saving || index === chain.length - 1, onClick: () => move(id, 1) }, '↓'),
+                h('button', { className: 'mgp_btn', disabled: saving, onClick: () => toggle(id) }, '×'))))
+      )
+  }
+
     function ModelsCard({ t, models, error, reload, busy, setBusy, settings }) {
       const [tests, setTests] = useState({})
       const [saving, setSaving] = useState(false)
@@ -595,6 +667,7 @@ window.__ModuleLoader__.load({
           h('span', { className: 'mgp_spacer' }),
           h('button', { className: 'mgp_btn', disabled: busy, onClick: refreshing }, t('models.refresh'))),
         h('p', { className: 'mgp_hint' }, t('models.curatedHint')),
+        h(FallbackPanel, { t, list, settings, reload }),
         error ? h('div', { className: 'mgp_err' }, error) : null,
         list.length === 0 && !error
           ? h('div', { className: 'mgp_notice' }, t('models.empty'))

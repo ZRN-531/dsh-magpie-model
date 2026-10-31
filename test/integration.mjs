@@ -1167,6 +1167,43 @@ record('store: cost accounting (USD + rate-weighted) and per-install webKey', as
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+record('fallback: fallbackChain overrides catalog order for the retry model', async () => {
+  const { MagpieAdapter, ROUTE } = await import('../src/adapter.js')
+  const calls = []
+  const stub = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push(body.model)
+    if (body.model === 'primary/dead') return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    return new Response(
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'OK' }, finish_reason: null }] })}\n\n` +
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n` +
+      'data: [DONE]\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    )
+  }
+  // Catalog order would put 'alt/second' after 'alt/first', but the user's chain
+  // pins 'alt/second' first. The point: the chain wins, not the catalog.
+  const adapter = new MagpieAdapter({
+    state: () => ({
+      catalog: [
+        { id: 'primary/dead', name: 'Dead', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 },
+        { id: 'alt/first', name: 'First', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 },
+        { id: 'alt/second', name: 'Second', group: false, inputModalities: ['text'], efforts: [], contextWindow: 1000 },
+      ],
+      membership: { [ROUTE]: ['primary/dead', 'alt/first', 'alt/second'] },
+      settings: { enabled: true, autoFallback: true, fallbackChain: ['alt/second', 'alt/first'] },
+    }),
+    baseUrl: () => 'http://stub', recordUsage: () => {}, warn: () => {},
+    fetch: stub,
+  })
+  const events = []
+  for await (const e of adapter.stream({ provider: ROUTE, model: 'primary/dead', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] }, 'http://stub')) events.push(e)
+  const finish = events.find(e => e.type === 'finish')
+  console.log(`    calls: [${calls.join(', ')}] → finish=${finish?.reason.kind}`)
+  assert.deepEqual(calls, ['primary/dead', 'alt/second'], 'the retry uses the user-pinned chain order, not catalog order')
+  assert.equal(finish.reason.kind, 'stop')
+})
+
 // ── runner ────────────────────────────────────────────────────────────────────
 let failed = 0
 for (const { name, fn } of results) {
