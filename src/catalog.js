@@ -194,9 +194,12 @@ export function modelInfoFor(row, provider, model) {
     const fallback = row.efforts.find(e => e.id !== 'off')?.id ?? row.efforts[0]?.id
     const chosen = preferred ?? fallback
     if (typeof chosen === 'string') info.reasoning.defaultEffort = chosen
-  } else {
-    info.reasoning = false
   }
+  // A non-thinking model leaves `reasoning` undefined. The harness's
+  // normalizeModelInfo treats `undefined` as "no reasoning support" but does
+  // `reasoning.efforts.length` on anything else, so returning `false` here
+  // crashed the whole provider group in the model picker with
+  // "Cannot read properties of undefined (reading 'length')".
   return info
 }
 

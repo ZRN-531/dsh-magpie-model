@@ -247,7 +247,10 @@ export class MagpieAdapter {
   async resolveModel(provider, model) {
     const row = this.rowFor(model)
     if (row === undefined) {
-      return { provider, id: model, name: model, inputModalities: ['text'], context: { contextWindow: 262144 }, reasoning: false }
+      // `reasoning` stays absent: the harness reads `undefined` as "no
+      // reasoning support" and otherwise dereferences `reasoning.efforts`,
+      // so a `false` here would throw over the whole provider group.
+      return { provider, id: model, name: model, inputModalities: ['text'], context: { contextWindow: 262144 } }
     }
     return modelInfoFor(row, provider, model)
   }
